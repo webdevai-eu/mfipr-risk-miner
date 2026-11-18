@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-// Struktura odpowiedzi JSON oczekiwana od modelu Gemini
 interface GeminiRiskResponse {
   projectTitle: string;
   estimatedBudgetPln: number;
@@ -63,7 +62,6 @@ export async function POST(req: NextRequest) {
       userPrompt += `[Plik załącznika]: ${fileName}\n`;
     }
 
-    // Jeśli przesłano plik tekstowy / CSV, zdekoduj bazę 64 do czystego UTF-8
     if (fileBase64 && (fileMimeType === "text/plain" || fileMimeType === "text/csv")) {
       try {
         const decoded = Buffer.from(fileBase64, "base64").toString("utf-8");
@@ -78,61 +76,56 @@ export async function POST(req: NextRequest) {
     }
 
     const isPdf = fileBase64 && fileMimeType === "application/pdf";
-    const isVertexExpress = apiKey.startsWith("AQ.");
-
     let rawJsonText = "";
 
-    if (isVertexExpress) {
-      // Wywołanie Vertex AI Express Endpoint
-      const endpoint = `https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    // Sprawdzamy czy klucz korzysta z generativelanguage v1beta (gemini-3.8-flash / gemini-2.5-flash)
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`;
 
-      const contentsParts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
+    const contentsParts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
 
-      if (isPdf) {
-        contentsParts.push({
-          inlineData: {
-            mimeType: "application/pdf",
-            data: fileBase64,
-          },
-        });
-      }
-
+    if (isPdf) {
       contentsParts.push({
-        text: `${SYSTEM_INSTRUCTION}\n\n${userPrompt}`,
-      });
-
-      const payload = {
-        contents: [
-          {
-            role: "user",
-            parts: contentsParts,
-          },
-        ],
-        generationConfig: {
-          responseMimeType: "application/json",
-          temperature: 0.2,
+        inlineData: {
+          mimeType: "application/pdf",
+          data: fileBase64,
         },
-      };
-
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
       });
+    }
 
-      if (!response.ok) {
-        const errText = await response.text();
-        console.error("Błąd Vertex AI Express:", response.status, errText);
-        throw new Error(`Vertex AI Express returned status ${response.status}: ${errText}`);
-      }
+    contentsParts.push({
+      text: `${SYSTEM_INSTRUCTION}\n\n${userPrompt}`,
+    });
 
+    const payload = {
+      contents: [
+        {
+          role: "user",
+          parts: contentsParts,
+        },
+      ],
+      generationConfig: {
+        responseMimeType: "application/json",
+        temperature: 0.2,
+      },
+    };
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (response.ok) {
       const resJson = await response.json();
       rawJsonText = resJson.candidates?.[0]?.content?.parts?.[0]?.text || "";
     } else {
-      // Standardowe wywołanie Google AI Studio SDK (@google/generative-ai)
+      // Fallback na bibliotekę GoogleGenerativeAI
+      const errText = await response.text();
+      console.warn("Direct API call returned error, trying SDK fallback:", response.status, errText);
+
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({
-        model: "gemini-2.5-flash",
+        model: "gemini-3.8-flash",
         generationConfig: {
           responseMimeType: "application/json",
           temperature: 0.2,
@@ -141,7 +134,6 @@ export async function POST(req: NextRequest) {
       });
 
       const parts: Array<string | { inlineData: { mimeType: string; data: string } }> = [];
-
       if (isPdf) {
         parts.push({
           inlineData: {
@@ -150,19 +142,17 @@ export async function POST(req: NextRequest) {
           },
         });
       }
-
       parts.push(userPrompt);
 
       const result = await model.generateContent(parts);
-      const response = await result.response;
-      rawJsonText = response.text();
+      const res = await result.response;
+      rawJsonText = res.text();
     }
 
     if (!rawJsonText) {
       throw new Error("Model Gemini nie zwrócił żadnej odpowiedzi tekstowej.");
     }
 
-    // Wyciągnięcie JSON w razie znaczników markdown
     let cleanJson = rawJsonText.trim();
     if (cleanJson.startsWith("```json")) {
       cleanJson = cleanJson.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
@@ -171,7 +161,6 @@ export async function POST(req: NextRequest) {
     }
 
     const parsedData: GeminiRiskResponse = JSON.parse(cleanJson);
-
     return NextResponse.json(parsedData);
   } catch (error: unknown) {
     const err = error as Error;
