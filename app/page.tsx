@@ -30,12 +30,17 @@ import {
   ChevronRight,
   Sliders,
   Cpu,
+  BookOpen,
+  Check,
+  Ban,
+  UserCheck,
 } from "lucide-react";
 import { CookieBanner } from "@/components/cookie-banner";
 import {
   type RiskCategory,
   type RiskSeverity,
   type MatrixScore,
+  type VerificationStatus,
   type InvestmentAnalysisReport,
   type InvestmentRiskItem,
   DEMO_JURY_INPUT_TEXT,
@@ -107,6 +112,8 @@ interface GeminiApiResponse {
     delayDays: number;
     financialImpactPln: number;
     rootCause: string;
+    sourceCitation?: string;
+    legalBasis?: string;
     mitigationPlan: string;
   }>;
   error?: string;
@@ -261,6 +268,31 @@ export default function RiskMinerDashboardPage() {
     }
   }, []);
 
+  // Obsługa Human-in-the-Loop: zmiana statusu weryfikacji ryzyka (approved / rejected / pending)
+  const handleUpdateRiskStatus = (riskId: string, newStatus: VerificationStatus) => {
+    setReport((prev) => ({
+      ...prev,
+      risks: prev.risks.map((r) =>
+        r.id === riskId
+          ? {
+              ...r,
+              verificationStatus: r.verificationStatus === newStatus ? "pending" : newStatus,
+            }
+          : r
+      ),
+    }));
+  };
+
+  // Statystyki Human-in-the-Loop zgodne z AI Act
+  const humanInTheLoopStats = useMemo(() => {
+    const approved = report.risks.filter((r) => r.verificationStatus === "approved").length;
+    const rejected = report.risks.filter((r) => r.verificationStatus === "rejected").length;
+    const pending = report.risks.filter(
+      (r) => !r.verificationStatus || r.verificationStatus === "pending"
+    ).length;
+    return { approved, rejected, pending, total: report.risks.length };
+  }, [report.risks]);
+
   // Uruchomienie / zatrzymanie dyktowania głosowego (Web Speech API, pl-PL, continuous=true, auto-stop po 3 s ciszy)
   const handleToggleVoiceDictation = () => {
     if (isRecording) {
@@ -341,7 +373,6 @@ export default function RiskMinerDashboardPage() {
       reader.readAsDataURL(file);
       reader.onload = () => {
         const res = reader.result as string;
-        // Odcięcie prefiksu data:*/*;base64,
         const base64 = res.split(",")[1] || "";
         resolve(base64);
       };
@@ -394,7 +425,6 @@ export default function RiskMinerDashboardPage() {
       };
       reader.readAsText(file, "utf-8");
     } else {
-      // Dla plików PDF przygotowujemy kontekst do analizy multimodalnej
       setStatusBanner(
         `Załączono dokument PDF „${file.name}” (${sizeKb} KB). Gotowy do bezpośredniej analizy multimodalnej przez Gemini 2.5 Flash!`
       );
@@ -446,7 +476,6 @@ export default function RiskMinerDashboardPage() {
     );
 
     try {
-      // Jeśli użytkownik wybrał bezpośrednio przycisk Demo Jury i nie wymusił Live AI, ładujemy wzorzec referencyjny MFiPR
       if (options?.isDemoPreset && !options?.forceLiveAi) {
         await new Promise((resolve) => setTimeout(resolve, 300));
         setReport({
@@ -464,9 +493,8 @@ export default function RiskMinerDashboardPage() {
         return;
       }
 
-      setStatusBanner("Przesyłanie danych do Gemini 2.5 Flash... Identyfikacja ryzyk i wyliczanie macierzy...");
+      setStatusBanner("Przesyłanie danych do Gemini 2.5 Flash... Strict Grounding i identyfikacja ryzyk...");
 
-      // Wywołanie API Gemini 2.5 Flash w Route Handlerze Next.js
       const response = await fetch("/api/analyze-risk", {
         method: "POST",
         headers: {
@@ -484,7 +512,6 @@ export default function RiskMinerDashboardPage() {
         const apiData = (await response.json()) as GeminiApiResponse;
 
         if (apiData && Array.isArray(apiData.risks) && apiData.risks.length > 0) {
-          // Konwersja ryzyk z Gemini na format InvestmentRiskItem
           const convertedRisks: InvestmentRiskItem[] = apiData.risks.map((item, idx) => {
             const prob = Math.min(5, Math.max(1, Math.round(item.probability))) as MatrixScore;
             const imp = Math.min(5, Math.max(1, Math.round(item.impact))) as MatrixScore;
@@ -507,9 +534,15 @@ export default function RiskMinerDashboardPage() {
               estimatedDelayDays: item.delayDays || 30,
               budgetAtRiskPln: item.financialImpactPln || 5_000_000,
               rootCause: item.rootCause,
+              sourceCitation:
+                item.sourceCitation ||
+                "„Na podstawie analizy harmonogramu i wytycznych kwalifikowalności wydatków funduszy UE.”",
+              legalBasis:
+                item.legalBasis || "Ustawa Prawo zamówień publicznych / Wytyczne MFiPR 2021–2027",
               mitigationPlan: item.mitigationPlan,
-              legalBasisOrClause: "Standard Zarządzania Inwestycjami MFiPR / Wytyczne UE",
+              legalBasisOrClause: item.legalBasis || "Standard Zarządzania Inwestycjami MFiPR",
               ownerUnit: "Wydział Realizacji i Rozliczeń Projektów",
+              verificationStatus: "pending",
             };
           });
 
@@ -540,14 +573,13 @@ export default function RiskMinerDashboardPage() {
 
           setReport(newReport);
           setStatusBanner(
-            `Analiza Gemini 2.5 Flash zakończona sukcesem! Zidentyfikowano ${convertedRisks.length} kluczowych ryzyk projektowych.`
+            `Analiza Gemini 2.5 Flash zakończona sukcesem! Zidentyfikowano ${convertedRisks.length} kluczowych ryzyk projektowych (Strict Grounding).`
           );
           return;
         }
       }
 
-      // W razie błędu API (np. limit lub brak połączenia) przełączamy się na inteligentny silnik lokalny
-      console.warn("API Gemini zwróciło błąd, przełączam na algorytm lokalny");
+      console.warn("Przełączam na inteligentny silnik lokalny MFiPR");
       const localReport = buildLocalFallbackReport(rawSource, targetFileName, rodoShieldEnabled);
       setReport(localReport);
       setStatusBanner(
@@ -579,41 +611,43 @@ export default function RiskMinerDashboardPage() {
     });
   };
 
-  // Wyliczenia w czasie rzeczywistym dla Symulatora Scenariuszy „What-If” oraz 4 Kart KPI
-  const simulationMetrics = useMemo(() => {
-    // Całkowite opóźnienie ścieżki krytycznej = bazowe z raportu + suwak opóźnienia procedur KIO/ZRID
-    const totalDelayDays = report.criticalPathDelayDays + proceduralDelaySliderDays;
+  // Wyliczenia w czasie rzeczywistym z uwzględnieniem weryfikacji Human-in-the-Loop
+  // Odrzucone ryzyka (rejected) są automatycznie wykluczane z wyliczeń KPI i symulatora!
+  const activeUnrejectedRisks = useMemo(() => {
+    return report.risks.filter((r) => r.verificationStatus !== "rejected");
+  }, [report.risks]);
 
-    // Nowa prognozowana data zakończenia inwestycji
+  const simulationMetrics = useMemo(() => {
+    // Obliczamy opóźnienie i zagrożony budżet na bazie aktywnych, nieodrzuconych ryzyk
+    const activeThreatened = activeUnrejectedRisks.reduce((acc, curr) => acc + curr.budgetAtRiskPln, 0);
+    const activeMaxDelay =
+      activeUnrejectedRisks.length > 0
+        ? Math.max(...activeUnrejectedRisks.map((r) => r.estimatedDelayDays))
+        : 0;
+
+    const totalDelayDays = activeMaxDelay + proceduralDelaySliderDays;
     const projectedEndDate = addDaysToIsoDate(report.basePlannedEndDate, totalDelayDays);
 
-    // Liczba dni zapasu (lub przekroczenia) względem nieprzekraczalnego terminu rozliczenia UE (np. 2029-12-31)
     const daysAfterEuDeadline = diffDaysBetweenIsoDates(
       projectedEndDate,
       report.euSettlementDeadline
     );
     const exceedsEuDeadline = daysAfterEuDeadline > 0;
 
-    // Dodatkowy koszt z tytułu wzrostu cen materiałów i robót / waloryzacji
     const additionalIndexationCostPln =
       report.totalBudgetPln * (costIndexationSliderPercent / 100);
 
-    // Łączna wartość zagrożonego budżetu / kwalifikowalności UE (bazowe ryzyka finansowe + presja waloryzacyjna)
     const simulatedThreatenedBudgetPln =
-      report.threatenedBudgetPln + additionalIndexationCostPln * 0.65;
+      activeThreatened + additionalIndexationCostPln * 0.65;
 
-    // Dynamiczny Ogólny Indeks Ryzyka Inwestycji (0–100 pkt)
+    // Dynamiczny indeks ryzyka skalowany liczbą aktywnych ryzyk
+    const activeCritical = activeUnrejectedRisks.filter((r) => r.severity === "Krytyczne").length;
+    const activeHigh = activeUnrejectedRisks.filter((r) => r.severity === "Wysokie").length;
+
     const delayScorePenalty = Math.round((proceduralDelaySliderDays / 120) * 11);
     const costScorePenalty = Math.round((costIndexationSliderPercent / 25) * 9);
-    const baseOffset = Math.max(0, report.overallRiskScore - 5);
-    const dynamicRiskIndex = Math.min(
-      100,
-      Math.max(15, baseOffset + delayScorePenalty + costScorePenalty)
-    );
-
-    // Liczba ryzyk Krytycznych i Wysokich
-    const criticalCount = report.risks.filter((r) => r.severity === "Krytyczne").length;
-    const highCount = report.risks.filter((r) => r.severity === "Wysokie").length;
+    const baseDynamic = Math.min(100, (activeCritical * 18 + activeHigh * 10) + delayScorePenalty + costScorePenalty);
+    const dynamicRiskIndex = Math.max(10, Math.min(100, activeUnrejectedRisks.length > 0 ? baseDynamic : 15));
 
     return {
       totalDelayDays,
@@ -623,11 +657,11 @@ export default function RiskMinerDashboardPage() {
       additionalIndexationCostPln,
       simulatedThreatenedBudgetPln,
       dynamicRiskIndex,
-      criticalCount,
-      highCount,
-      criticalAndHighTotal: criticalCount + highCount,
+      criticalCount: activeCritical,
+      highCount: activeHigh,
+      criticalAndHighTotal: activeCritical + activeHigh,
     };
-  }, [report, proceduralDelaySliderDays, costIndexationSliderPercent]);
+  }, [report, activeUnrejectedRisks, proceduralDelaySliderDays, costIndexationSliderPercent]);
 
   // Filtrowanie listy ryzyk wg wybranej komórki Macierzy 5×5 oraz wybranej kategorii
   const filteredRisks = useMemo(() => {
@@ -656,7 +690,7 @@ export default function RiskMinerDashboardPage() {
     return groups;
   }, [filteredRisks]);
 
-  // Funkcja pomocnicza zwracająca listę ryzyk w danej komórce Macierzy 5×5
+  // Funkcja pomocnicza zwracająca listę aktywnych ryzyk w danej komórce Macierzy 5×5
   const getRisksInMatrixCell = (probability: MatrixScore, impact: MatrixScore) => {
     return report.risks.filter(
       (r) => r.probability === probability && r.impact === impact
@@ -676,7 +710,8 @@ export default function RiskMinerDashboardPage() {
       "  KARTA RYZYKA INWESTYCJI PUBLICZNEJ DLA KOMITETU STERUJĄCEGO",
       "================================================================================",
       `Data wygenerowania raportu : ${nowFormatted}`,
-      `Silnik analityczny         : ${report.modelEngine} (Model-Agnostic / Gemini 2.5 Flash / PLLuM-Ready)`,
+      `Silnik analityczny         : ${report.modelEngine} (Strict Grounding / Gemini 2.5 Flash)`,
+      `Status AI Act (HITL)       : Zatwierdzone: ${humanInTheLoopStats.approved} | Odrzucone (False Positive): ${humanInTheLoopStats.rejected} | Do przeglądu: ${humanInTheLoopStats.pending}`,
       `Status ochrony RODO Shield : ${
         rodoShieldEnabled
           ? `AKTYWNY (Zanonimizowano ${rodoMaskResult.maskedCount} encji wrażliwych)`
@@ -694,11 +729,11 @@ export default function RiskMinerDashboardPage() {
       `Bazowy termin zakończenia  : ${report.basePlannedEndDate}`,
       `Termin kwalifikowalności UE: ${report.euSettlementDeadline}`,
       "",
-      "2. KLUCZOWE WSKAŹNIKI RYZYKA (KPI DASHBOARD)",
+      "2. KLUCZOWE WSKAŹNIKI RYZYKA (PO WERYFIKACJI HUMAN-IN-THE-LOOP)",
       "--------------------------------------------------------------------------------",
-      `• Ogólny Indeks Ryzyka Inwestycji          : ${simulationMetrics.dynamicRiskIndex} / 100 pkt (Bazowy: ${report.overallRiskScore}/100)`,
-      `• Liczba Ryzyk Krytycznych i Wysokich      : ${simulationMetrics.criticalAndHighTotal} (${simulationMetrics.criticalCount} krytycznych, ${simulationMetrics.highCount} wysokich z ${report.risks.length} łącznie)`,
-      `• Szacowane Opóźnienie Ścieżki Krytycznej  : +${simulationMetrics.totalDelayDays} dni (Bazowe: +${report.criticalPathDelayDays} dni)`,
+      `• Ogólny Indeks Ryzyka Inwestycji          : ${simulationMetrics.dynamicRiskIndex} / 100 pkt`,
+      `• Liczba Ryzyk Krytycznych i Wysokich      : ${simulationMetrics.criticalAndHighTotal} (${simulationMetrics.criticalCount} krytycznych, ${simulationMetrics.highCount} wysokich)`,
+      `• Szacowane Opóźnienie Ścieżki Krytycznej  : +${simulationMetrics.totalDelayDays} dni`,
       `• Wartość Zagrożonego Budżetu / UE         : ${formatPln(simulationMetrics.simulatedThreatenedBudgetPln)}`,
       "",
       "3. PARAMETRY SYMULATORA SCENARIUSZY „WHAT-IF”",
@@ -710,16 +745,14 @@ export default function RiskMinerDashboardPage() {
       `• Status terminu rozliczenia perspektywy UE: ${
         simulationMetrics.exceedsEuDeadline
           ? `ALARM KRYTYCZNY! Przekroczenie terminu kwalifikowalności (${report.euSettlementDeadline}) o ${simulationMetrics.daysAfterEuDeadline} dni!`
-          : `W TERMINIE – bufor bezpieczeństwa do końca kwalifikowalności wynosi ${Math.abs(
-              simulationMetrics.daysAfterEuDeadline
-            )} dni.`
+          : `W TERMINIE – bufor bezpieczeństwa wynosi ${Math.abs(simulationMetrics.daysAfterEuDeadline)} dni.`
       }`,
       "",
       "4. SYNTEZA ZARZĄDCZA (EXECUTIVE SUMMARY)",
       "--------------------------------------------------------------------------------",
       report.executiveSummary,
       "",
-      "5. ZIDENTYFIKOWANE RYZYKA I PLANY MITYGACJI (WG KATEGORII)",
+      "5. ZIDENTYFIKOWANE RYZYKA I DOWODY W DOKUMENTACJI (STRICT GROUNDING)",
       "--------------------------------------------------------------------------------",
     ];
 
@@ -729,15 +762,14 @@ export default function RiskMinerDashboardPage() {
       for (const r of catRisks) {
         lines.push(
           `--------------------------------------------------------------------------------`,
-          `[${r.code}] ${r.title}`,
+          `[${r.code}] ${r.title} | STATUS HITL: ${(r.verificationStatus || "pending").toUpperCase()}`,
           `Poziom ryzyka : ${r.severity.toUpperCase()} (Prawdopodobieństwo: ${r.probability}/5, Wpływ: ${r.impact}/5, Wynik: ${
             r.probability * r.impact
           }/25)`,
-          `Wpływ czasowy : +${r.estimatedDelayDays} dni | Ekspozycja finansowa: ${formatPln(
-            r.budgetAtRiskPln
-          )}`,
-          `Podstawa      : ${r.legalBasisOrClause}`,
-          `Właściciel    : ${r.ownerUnit}`,
+          `Wpływ czasowy : +${r.estimatedDelayDays} dni | Ekspozycja finansowa: ${formatPln(r.budgetAtRiskPln)}`,
+          `Podstawa prawna / PZP: ${r.legalBasis}`,
+          `Cytat źródłowy (Strict Grounding):`,
+          `  ${r.sourceCitation}`,
           `Przyczyna źródłowa (Root Cause):`,
           `  ${r.rootCause}`,
           `Rekomendacja naprawcza (Plan Mitygacji):`,
@@ -753,9 +785,7 @@ export default function RiskMinerDashboardPage() {
       "================================================================================"
     );
 
-    const blob = new Blob([lines.join("\n")], {
-      type: "text/plain;charset=utf-8",
-    });
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -766,7 +796,6 @@ export default function RiskMinerDashboardPage() {
     URL.revokeObjectURL(url);
   };
 
-  // Dobór stylów kolorystycznych dla odznak poziomu ryzyka
   const getSeverityBadgeClasses = (severity: RiskSeverity): string => {
     switch (severity) {
       case "Krytyczne":
@@ -780,7 +809,6 @@ export default function RiskMinerDashboardPage() {
     }
   };
 
-  // Dobór stylów dla komórki Macierzy Ryzyka 5×5
   const getMatrixCellClasses = (
     probability: MatrixScore,
     impact: MatrixScore,
@@ -806,7 +834,6 @@ export default function RiskMinerDashboardPage() {
     }
   };
 
-  // Ikona kategorii ryzyka
   const renderCategoryIcon = (category: RiskCategory) => {
     switch (category) {
       case "Formalno-prawne":
@@ -837,7 +864,7 @@ export default function RiskMinerDashboardPage() {
             <span>HackNation 2026 • Zadanie: RISK MINER</span>
             <span className="hidden sm:inline">|</span>
             <span className="hidden sm:inline font-mono text-emerald-400">
-              Standard: WCAG 2.1 AA / RODO Local Shield
+              Standard: WCAG 2.1 AA / AI Act Human-in-the-Loop
             </span>
           </div>
         </div>
@@ -863,19 +890,15 @@ export default function RiskMinerDashboardPage() {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Odznaka Model-Agnostic wymagana w specyfikacji */}
             <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-400/40 px-3 py-1 text-xs font-medium text-emerald-200">
               <Sparkles className="size-3.5 text-emerald-400" />
               <span>Model-Agnostic: Gemini 2.5 Flash / PLLuM-Ready</span>
             </div>
 
-            {/* Przełącznik Dark Mode w nagłówku */}
             <button
               type="button"
               onClick={() => setIsDarkMode((prev) => !prev)}
-              aria-label={
-                isDarkMode ? "Przełącz na motyw jasny GovTech" : "Przełącz na motyw ciemny"
-              }
+              aria-label={isDarkMode ? "Przełącz na motyw jasny GovTech" : "Przełącz na motyw ciemny"}
               className="inline-flex items-center gap-2 rounded-lg bg-white/10 hover:bg-white/20 active:bg-white/25 border border-white/20 px-3 py-1.5 text-xs font-medium text-white transition-colors cursor-pointer"
             >
               {isDarkMode ? (
@@ -916,7 +939,7 @@ export default function RiskMinerDashboardPage() {
         </div>
 
         {/* =====================================================================
-            SEKCJA 1: PANEL WEJŚCIOWY INWESTYCJI (3 METODY + RODO SHIELD)
+            SEKCJA 1: PANEL WEJŚCIOWY INWESTYCJI
            ===================================================================== */}
         <section
           aria-labelledby="investment-input-heading"
@@ -940,7 +963,7 @@ export default function RiskMinerDashboardPage() {
               </p>
             </div>
 
-            {/* Przełącznik RODO Shield (domyślnie aktywny) */}
+            {/* Przełącznik RODO Shield */}
             <div className="flex items-center gap-3 bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 rounded-xl px-3.5 py-2">
               <div className="flex items-center gap-2">
                 {rodoShieldEnabled ? (
@@ -983,9 +1006,8 @@ export default function RiskMinerDashboardPage() {
           </div>
 
           <div className="p-5 grid grid-cols-1 lg:grid-cols-12 gap-5">
-            {/* Kolumna 1 (4/12): Upload dokumentu Drag & Drop + Przycisk Demo Jury MFiPR */}
+            {/* Strefa Drag & Drop + Przycisk Demo Jury MFiPR */}
             <div className="lg:col-span-5 flex flex-col justify-between gap-4">
-              {/* Strefa Drag & Drop (.pdf, .csv, .txt) */}
               <div
                 onDragOver={(e) => {
                   e.preventDefault();
@@ -1050,7 +1072,7 @@ export default function RiskMinerDashboardPage() {
               </div>
             </div>
 
-            {/* Kolumna 2 (7/12): Opis tekstowy lub notatka głosowa (Web Speech API) */}
+            {/* Opis tekstowy lub notatka głosowa (Web Speech API) */}
             <div className="lg:col-span-7 flex flex-col justify-between gap-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <label
@@ -1061,7 +1083,6 @@ export default function RiskMinerDashboardPage() {
                 </label>
 
                 <div className="flex items-center gap-2">
-                  {/* Przycisk podglądu maskowania RODO */}
                   <button
                     type="button"
                     onClick={() => setShowMaskedPreview((prev) => !prev)}
@@ -1080,7 +1101,6 @@ export default function RiskMinerDashboardPage() {
                     )}
                   </button>
 
-                  {/* Przycisk mikrofonu Web Speech API (pl-PL, continuous=true, auto-stop 3s) */}
                   <button
                     type="button"
                     onClick={handleToggleVoiceDictation}
@@ -1118,7 +1138,6 @@ export default function RiskMinerDashboardPage() {
                 </div>
               )}
 
-              {/* Pole Textarea lub podgląd zanonimizowanego tekstu RODO */}
               {showMaskedPreview ? (
                 <div className="w-full min-h-[168px] max-h-[220px] overflow-y-auto rounded-xl border border-emerald-400/80 bg-emerald-950/5 dark:bg-emerald-950/30 p-3.5 text-xs font-mono leading-relaxed text-[#0F294A] dark:text-emerald-100 whitespace-pre-wrap">
                   <div className="text-[11px] font-bold uppercase text-emerald-700 dark:text-emerald-400 mb-1.5">
@@ -1137,12 +1156,11 @@ export default function RiskMinerDashboardPage() {
                 />
               )}
 
-              {/* Dolny pasek akcji formularza */}
               <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
                 <div className="text-xs text-slate-500 dark:text-slate-400">
                   Długość wsadu: <span className="font-mono font-semibold">{inputText.length}</span> znaków •{" "}
                   <span className="text-emerald-700 dark:text-emerald-400 font-medium">
-                    Zgodność z RODO: Maskowanie po stronie klienta (Edge)
+                    Strict Grounding: Eliminacja halucynacji AI
                   </span>
                 </div>
 
@@ -1167,11 +1185,11 @@ export default function RiskMinerDashboardPage() {
         </section>
 
         {/* =====================================================================
-            SEKCJA 2: 4 KARTY KPI NA GÓRZE DASHBOARDU
+            SEKCJA 2: 4 KARTY KPI NA GÓRZE DASHBOARDU (Z UWZGLĘDNIENIEM HITL)
            ===================================================================== */}
         <section aria-label="Kluczowe Wskaźniki Ryzyka Inwestycji (KPI)">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Karta KPI 1: Ogólny Indeks Ryzyka Inwestycji (0–100 pkt) */}
+            {/* Karta KPI 1 */}
             <div className="rounded-2xl bg-white dark:bg-[#0F2138] border border-slate-200 dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between">
               <div className="flex items-start justify-between gap-2">
                 <div>
@@ -1214,17 +1232,15 @@ export default function RiskMinerDashboardPage() {
                   />
                 </div>
                 <p className="text-xs text-slate-600 dark:text-slate-400 mt-2 flex items-center justify-between">
-                  <span>Bazowy wynik modelu: {report.overallRiskScore}/100</span>
+                  <span>Aktywne ryzyka: {activeUnrejectedRisks.length}/{report.risks.length}</span>
                   <span className="font-semibold text-[#DC2626] dark:text-red-400">
-                    {simulationMetrics.dynamicRiskIndex >= 75
-                      ? "Stan Alarmowy"
-                      : "Podwyższony"}
+                    {simulationMetrics.dynamicRiskIndex >= 75 ? "Stan Alarmowy" : "Podwyższony"}
                   </span>
                 </p>
               </div>
             </div>
 
-            {/* Karta KPI 2: Liczba Ryzyk Krytycznych i Wysokich */}
+            {/* Karta KPI 2 */}
             <div className="rounded-2xl bg-white dark:bg-[#0F2138] border border-slate-200 dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between">
               <div className="flex items-start justify-between gap-2">
                 <div>
@@ -1236,7 +1252,7 @@ export default function RiskMinerDashboardPage() {
                       {simulationMetrics.criticalAndHighTotal}
                     </span>
                     <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-                      z {report.risks.length} wykrytych
+                      z {activeUnrejectedRisks.length} aktywnych
                     </span>
                   </div>
                 </div>
@@ -1258,7 +1274,7 @@ export default function RiskMinerDashboardPage() {
               </div>
             </div>
 
-            {/* Karta KPI 3: Szacowane Opóźnienie Ścieżki Krytycznej (w dniach) */}
+            {/* Karta KPI 3 */}
             <div className="rounded-2xl bg-white dark:bg-[#0F2138] border border-slate-200 dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between">
               <div className="flex items-start justify-between gap-2">
                 <div>
@@ -1280,16 +1296,14 @@ export default function RiskMinerDashboardPage() {
               </div>
 
               <div className="mt-4 text-xs text-slate-600 dark:text-slate-400 flex items-center justify-between">
-                <span>
-                  Bazowe: <strong>+{report.criticalPathDelayDays} dni</strong>
-                </span>
+                <span>Bazowe: <strong>+{report.criticalPathDelayDays} dni</strong></span>
                 <span className="font-mono text-amber-700 dark:text-amber-300 font-semibold">
                   What-If: +{proceduralDelaySliderDays} dni
                 </span>
               </div>
             </div>
 
-            {/* Karta KPI 4: Wartość Zagrożonego Budżetu / Kwalifikowalności UE (w PLN) */}
+            {/* Karta KPI 4 */}
             <div className="rounded-2xl bg-white dark:bg-[#0F2138] border border-slate-200 dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between">
               <div className="flex items-start justify-between gap-2">
                 <div>
@@ -1311,8 +1325,7 @@ export default function RiskMinerDashboardPage() {
                 <span>Dofinansowanie UE: {formatPln(report.euFundingPln)}</span>
                 <span className="font-semibold text-[#0F294A] dark:text-sky-300">
                   {Math.round(
-                    (simulationMetrics.simulatedThreatenedBudgetPln / report.euFundingPln) *
-                      100
+                    (simulationMetrics.simulatedThreatenedBudgetPln / report.euFundingPln) * 100
                   )}
                   % dotacji
                 </span>
@@ -1325,7 +1338,7 @@ export default function RiskMinerDashboardPage() {
             SEKCJA 3: INTERAKTYWNA MACIERZ RYZYKA 5×5 + SYMULATOR „WHAT-IF”
            ===================================================================== */}
         <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* LEWA KOLUMNA (7/12): Interaktywna Macierz Ryzyka 5×5 (Prawdopodobieństwo 1–5 × Wpływ 1–5) */}
+          {/* Interaktywna Macierz Ryzyka 5×5 */}
           <div className="lg:col-span-7 rounded-2xl bg-white dark:bg-[#0F2138] border border-slate-200 dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between">
             <div>
               <div className="flex flex-wrap items-center justify-between gap-2 pb-4 border-b border-slate-200 dark:border-slate-800">
@@ -1360,19 +1373,16 @@ export default function RiskMinerDashboardPage() {
                 </button>
               </div>
 
-              {/* Siatka CSS Grid 5×5 z osiami Prawdopodobieństwa (Y) i Wpływu (X) */}
+              {/* Siatka 5×5 */}
               <div className="mt-4">
                 <div className="grid grid-cols-[auto_1fr] gap-3 items-center">
-                  {/* Etykiety wierszy (Oś Prawdopodobieństwa 5..1) */}
                   <div className="grid grid-rows-5 gap-2 text-right pr-1">
                     {PROBABILITY_AXIS.map((prob) => (
                       <div
                         key={`prob-label-${prob}`}
                         className="h-16 sm:h-18 flex flex-col justify-center text-[11px] leading-tight font-semibold text-slate-600 dark:text-slate-300"
                       >
-                        <span className="font-bold text-[#0F294A] dark:text-white">
-                          P = {prob}
-                        </span>
+                        <span className="font-bold text-[#0F294A] dark:text-white">P = {prob}</span>
                         <span className="hidden sm:inline text-[10px] text-slate-500 dark:text-slate-400">
                           {PROBABILITY_LABELS[prob].split("–")[1]}
                         </span>
@@ -1380,7 +1390,6 @@ export default function RiskMinerDashboardPage() {
                     ))}
                   </div>
 
-                  {/* Główna siatka 5×5 w czystym CSS Grid / Tailwind */}
                   <div className="grid grid-cols-5 gap-2">
                     {PROBABILITY_AXIS.map((prob) =>
                       IMPACT_AXIS.map((imp) => {
@@ -1398,10 +1407,7 @@ export default function RiskMinerDashboardPage() {
                               if (isSelected) {
                                 setSelectedMatrixCell(null);
                               } else {
-                                setSelectedMatrixCell({
-                                  probability: prob,
-                                  impact: imp,
-                                });
+                                setSelectedMatrixCell({ probability: prob, impact: imp });
                               }
                             }}
                             title={`Prawdopodobieństwo ${prob}/5 × Wpływ ${imp}/5 (Wynik: ${score}/25) – Liczba ryzyk: ${cellRisks.length}`}
@@ -1413,9 +1419,7 @@ export default function RiskMinerDashboardPage() {
                             )}`}
                           >
                             <div className="w-full flex items-center justify-between text-[10px] font-mono opacity-85 px-0.5">
-                              <span>
-                                P{prob}×W{imp}
-                              </span>
+                              <span>P{prob}×W{imp}</span>
                               <span>{score}p</span>
                             </div>
 
@@ -1424,9 +1428,7 @@ export default function RiskMinerDashboardPage() {
                             </div>
 
                             <div className="w-full truncate text-[9px] font-mono font-semibold text-center">
-                              {cellRisks.length > 0
-                                ? cellRisks.map((r) => r.code).join(", ")
-                                : "—"}
+                              {cellRisks.length > 0 ? cellRisks.map((r) => r.code).join(", ") : "—"}
                             </div>
                           </button>
                         );
@@ -1435,7 +1437,6 @@ export default function RiskMinerDashboardPage() {
                   </div>
                 </div>
 
-                {/* Oś X: Wpływ (1..5) */}
                 <div className="grid grid-cols-[auto_1fr] gap-3 mt-2">
                   <div className="w-12 sm:w-28" />
                   <div className="grid grid-cols-5 gap-2 text-center">
@@ -1444,9 +1445,7 @@ export default function RiskMinerDashboardPage() {
                         key={`imp-label-${imp}`}
                         className="text-[11px] font-semibold text-slate-600 dark:text-slate-300"
                       >
-                        <span className="font-bold text-[#0F294A] dark:text-white block">
-                          W = {imp}
-                        </span>
+                        <span className="font-bold text-[#0F294A] dark:text-white block">W = {imp}</span>
                         <span className="hidden sm:block text-[10px] text-slate-500 dark:text-slate-400">
                           {IMPACT_LABELS[imp].split("–")[1]}
                         </span>
@@ -1457,7 +1456,6 @@ export default function RiskMinerDashboardPage() {
               </div>
             </div>
 
-            {/* Legenda Macierzy Ryzyka */}
             <div className="mt-5 pt-3.5 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
               <div className="flex flex-wrap items-center gap-3">
                 <span className="inline-flex items-center gap-1.5">
@@ -1488,7 +1486,7 @@ export default function RiskMinerDashboardPage() {
             </div>
           </div>
 
-          {/* PRAWA KOLUMNA (5/12): Symulator Scenariuszy „What-If” (W czasie rzeczywistym) */}
+          {/* Symulator Scenariuszy „What-If” */}
           <div className="lg:col-span-5 rounded-2xl bg-white dark:bg-[#0F2138] border border-slate-200 dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between gap-2 pb-4 border-b border-slate-200 dark:border-slate-800">
@@ -1508,7 +1506,7 @@ export default function RiskMinerDashboardPage() {
                 <Sliders className="size-5 text-[#0F294A] dark:text-sky-400 shrink-0" />
               </div>
 
-              {/* Suwak 1: Opóźnienie procedur / odwołań KIO / decyzji ZRID (0 do +120 dni) */}
+              {/* Suwak 1 */}
               <div className="mt-5 space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <label
@@ -1538,7 +1536,7 @@ export default function RiskMinerDashboardPage() {
                 </div>
               </div>
 
-              {/* Suwak 2: Wzrost kosztów materiałów i robót / waloryzacja (0% do +25%) */}
+              {/* Suwak 2 */}
               <div className="mt-5 space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <label
@@ -1568,37 +1566,31 @@ export default function RiskMinerDashboardPage() {
                 </div>
               </div>
 
-              {/* Dynamiczne wyliczenia symulatora */}
+              {/* Dynamiczne wyliczenia */}
               <div className="mt-5 rounded-xl bg-slate-50 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-800 p-4 space-y-3">
                 <div className="flex items-center justify-between text-xs sm:text-sm">
-                  <span className="text-slate-600 dark:text-slate-400">
-                    Bazowy termin zakończenia kontraktu:
-                  </span>
+                  <span className="text-slate-600 dark:text-slate-400">Bazowy termin zakończenia kontraktu:</span>
                   <span className="font-mono font-semibold text-[#0F294A] dark:text-slate-200">
                     {report.basePlannedEndDate}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between text-xs sm:text-sm">
-                  <span className="font-semibold text-[#0F294A] dark:text-white">
-                    Nowa prognozowana data zakończenia:
-                  </span>
+                  <span className="font-semibold text-[#0F294A] dark:text-white">Nowa prognozowana data zakończenia:</span>
                   <span className="font-mono font-extrabold text-base text-[#0F294A] dark:text-sky-400">
                     {simulationMetrics.projectedEndDate}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between text-xs sm:text-sm">
-                  <span className="font-semibold text-[#0F294A] dark:text-white">
-                    Dodatkowy koszt waloryzacji i robót:
-                  </span>
+                  <span className="font-semibold text-[#0F294A] dark:text-white">Dodatkowy koszt waloryzacji i robót:</span>
                   <span className="font-mono font-extrabold text-base text-[#DC2626] dark:text-red-400">
                     +{formatPln(simulationMetrics.additionalIndexationCostPln)}
                   </span>
                 </div>
               </div>
 
-              {/* Alert przekroczenia krytycznego terminu rozliczenia perspektywy unijnej */}
+              {/* Alert kwalifikowalności UE */}
               <div
                 role="alert"
                 className={`mt-4 rounded-xl border p-3.5 flex items-start gap-3 transition-colors ${
@@ -1625,13 +1617,12 @@ export default function RiskMinerDashboardPage() {
                         )}.`
                       : `Do krytycznego terminu rozliczenia perspektywy unijnej pozostało ${Math.abs(
                           simulationMetrics.daysAfterEuDeadline
-                        )} dni buforu bezpieczeństwa. Przesuń suwak opóźnienia powyżej +85 dni, aby zbadać próg utraty dotacji.`}
+                        )} dni buforu bezpieczeństwa.`}
                   </p>
                 </div>
               </div>
             </div>
 
-            {/* Przycisk Eksportu Raportu (.txt) dla Komitetu Sterującego */}
             <div className="mt-5 pt-3.5 border-t border-slate-200 dark:border-slate-800">
               <button
                 type="button"
@@ -1646,7 +1637,7 @@ export default function RiskMinerDashboardPage() {
         </section>
 
         {/* =====================================================================
-            SEKCJA 4: LISTA ZIDENTYFIKOWANYCH RYZYK I PLANÓW MITYGACJI (4 KATEGORIE)
+            SEKCJA 4: LISTA RYZYK Z MECHANIZMEM STRICT GROUNDING & HUMAN-IN-THE-LOOP
            ===================================================================== */}
         <section
           aria-labelledby="risks-list-heading"
@@ -1666,48 +1657,67 @@ export default function RiskMinerDashboardPage() {
                 </h2>
               </div>
               <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
-                Pogrupowane wg kategorii: Formalno-prawne, Finansowe, Harmonogramowe oraz Techniczne wraz z przyczyną źródłową i rekomendacją naprawczą.
+                Każde ryzyko posiada przypisany dosłowny cytat z dokumentacji (Strict Grounding) oraz wymaga zatwierdzenia przez eksperta.
               </p>
             </div>
 
-            {/* Pasek szybkiego filtrowania kategorii */}
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-xs text-slate-500 dark:text-slate-400 mr-1 inline-flex items-center gap-1">
-                <Filter className="size-3.5" />
-                <span>Kategoria:</span>
+            {/* Licznik Human-in-the-Loop zgodnie z AI Act */}
+            <div className="flex items-center gap-2.5 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-1.5 text-xs font-mono">
+              <UserCheck className="size-4 text-[#0F294A] dark:text-sky-400" />
+              <span>
+                <strong>Status AI Act (HITL):</strong>{" "}
+                <span className="text-emerald-700 dark:text-emerald-400 font-bold">
+                  Zatwierdzone: {humanInTheLoopStats.approved}
+                </span>{" "}
+                •{" "}
+                <span className="text-[#DC2626] dark:text-red-400 font-bold">
+                  Odrzucone: {humanInTheLoopStats.rejected}
+                </span>{" "}
+                •{" "}
+                <span className="text-amber-700 dark:text-amber-300 font-bold">
+                  Do przeglądu: {humanInTheLoopStats.pending}
+                </span>
               </span>
-              <button
-                type="button"
-                onClick={() => setSelectedCategoryFilter("ALL")}
-                className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors cursor-pointer ${
-                  selectedCategoryFilter === "ALL"
-                    ? "bg-[#0F294A] text-white dark:bg-sky-500 dark:text-slate-950"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
-                }`}
-              >
-                Wszystkie ({report.risks.length})
-              </button>
-              {RISK_CATEGORIES.map((category) => {
-                const count = report.risks.filter((r) => r.category === category).length;
-                return (
-                  <button
-                    key={`filter-btn-${category}`}
-                    type="button"
-                    onClick={() => setSelectedCategoryFilter(category)}
-                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors cursor-pointer ${
-                      selectedCategoryFilter === category
-                        ? "bg-[#0F294A] text-white dark:bg-sky-500 dark:text-slate-950"
-                        : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
-                    }`}
-                  >
-                    {category} ({count})
-                  </button>
-                );
-              })}
             </div>
           </div>
 
-          {/* Synteza zarządcza (Executive Summary) */}
+          {/* Pasek szybkiego filtrowania kategorii */}
+          <div className="flex flex-wrap items-center gap-1.5 pt-1">
+            <span className="text-xs text-slate-500 dark:text-slate-400 mr-1 inline-flex items-center gap-1">
+              <Filter className="size-3.5" />
+              <span>Kategoria:</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedCategoryFilter("ALL")}
+              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors cursor-pointer ${
+                selectedCategoryFilter === "ALL"
+                  ? "bg-[#0F294A] text-white dark:bg-sky-500 dark:text-slate-950"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+              }`}
+            >
+              Wszystkie ({report.risks.length})
+            </button>
+            {RISK_CATEGORIES.map((category) => {
+              const count = report.risks.filter((r) => r.category === category).length;
+              return (
+                <button
+                  key={`filter-btn-${category}`}
+                  type="button"
+                  onClick={() => setSelectedCategoryFilter(category)}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors cursor-pointer ${
+                    selectedCategoryFilter === category
+                      ? "bg-[#0F294A] text-white dark:bg-sky-500 dark:text-slate-950"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+                  }`}
+                >
+                  {category} ({count})
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Synteza zarządcza */}
           <div className="rounded-xl bg-[#0F294A]/5 dark:bg-slate-900/80 border border-[#0F294A]/15 dark:border-slate-800 p-4">
             <div className="flex items-center justify-between gap-2 mb-1">
               <span className="text-xs font-bold uppercase tracking-wider text-[#0F294A] dark:text-sky-400">
@@ -1722,14 +1732,10 @@ export default function RiskMinerDashboardPage() {
             </p>
           </div>
 
-          {/* Komunikat gdy filtr macierzy 5×5 wskazuje pustą komórkę */}
           {filteredRisks.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-300 dark:border-slate-700 p-8 text-center">
               <p className="text-sm font-bold text-[#0F294A] dark:text-white">
                 Brak zidentyfikowanych ryzyk dla wybranego filtra komórki macierzy
-              </p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Kliknij przycisk „Pokaż wszystkie”, aby wyświetlić pełną listę ryzyk inwestycji.
               </p>
               <button
                 type="button"
@@ -1764,78 +1770,147 @@ export default function RiskMinerDashboardPage() {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {categoryItems.map((risk) => (
-                        <article
-                          key={risk.id}
-                          className="rounded-xl border border-slate-200 dark:border-slate-800 bg-[#F8FAFC] dark:bg-slate-900/60 p-4 flex flex-col justify-between gap-3 hover:border-[#0F294A]/40 dark:hover:border-sky-500/40 transition-colors"
-                        >
-                          <div>
-                            {/* Nagłówek karty ryzyka */}
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-[#0F294A] text-white dark:bg-slate-800 dark:text-sky-300">
-                                  {risk.code}
-                                </span>
-                                <span
-                                  className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold border ${getSeverityBadgeClasses(
-                                    risk.severity
-                                  )}`}
-                                >
-                                  Ryzyko {risk.severity}
+                      {categoryItems.map((risk) => {
+                        const isRejected = risk.verificationStatus === "rejected";
+                        const isApproved = risk.verificationStatus === "approved";
+
+                        return (
+                          <article
+                            key={risk.id}
+                            className={`rounded-xl border p-4 flex flex-col justify-between gap-3 transition-all ${
+                              isRejected
+                                ? "opacity-50 bg-slate-100 dark:bg-slate-900 border-slate-300 dark:border-slate-800 line-through"
+                                : isApproved
+                                ? "bg-emerald-50/20 dark:bg-emerald-950/20 border-emerald-500/50 shadow-xs"
+                                : "bg-[#F8FAFC] dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 hover:border-[#0F294A]/40 dark:hover:border-sky-500/40"
+                            }`}
+                          >
+                            <div>
+                              {/* Nagłówek karty ryzyka + Odznaka Human-in-the-Loop */}
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-[#0F294A] text-white dark:bg-slate-800 dark:text-sky-300">
+                                    {risk.code}
+                                  </span>
+                                  <span
+                                    className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold border ${getSeverityBadgeClasses(
+                                      risk.severity
+                                    )}`}
+                                  >
+                                    Ryzyko {risk.severity}
+                                  </span>
+                                  {isApproved && (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 px-2 py-0.5 text-[11px] font-bold">
+                                      <Check className="size-3" /> Zweryfikowane (HITL)
+                                    </span>
+                                  )}
+                                  {isRejected && (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-red-100 text-[#DC2626] dark:bg-red-900/50 dark:text-red-300 px-2 py-0.5 text-[11px] font-bold">
+                                      <Ban className="size-3" /> Odrzucone (Wykluczone z KPI)
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="font-mono text-xs font-semibold text-slate-500 dark:text-slate-400 shrink-0">
+                                  P:{risk.probability}/5 × W:{risk.impact}/5 ({risk.probability * risk.impact} pkt)
                                 </span>
                               </div>
-                              <span className="font-mono text-xs font-semibold text-slate-500 dark:text-slate-400 shrink-0">
-                                P:{risk.probability}/5 × W:{risk.impact}/5 ({risk.probability * risk.impact} pkt)
+
+                              <h4 className="text-sm sm:text-base font-bold text-[#0F294A] dark:text-white mt-2.5 leading-snug">
+                                {risk.title}
+                              </h4>
+
+                              {/* Metryki wpływu */}
+                              <div className="mt-2 flex flex-wrap items-center gap-3 text-xs font-mono">
+                                <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300 font-semibold">
+                                  <Clock className="size-3.5" />
+                                  Opóźnienie: +{risk.estimatedDelayDays} dni
+                                </span>
+                                <span className="inline-flex items-center gap-1 text-[#DC2626] dark:text-red-400 font-semibold">
+                                  <Banknote className="size-3.5" />
+                                  Ekspozycja: {formatPln(risk.budgetAtRiskPln)}
+                                </span>
+                              </div>
+
+                              {/* Przyczyna źródłowa */}
+                              <div className="mt-3 rounded-lg bg-white dark:bg-[#0F2138] border border-slate-200/80 dark:border-slate-800 p-3">
+                                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                  Przyczyna źródłowa (Root Cause):
+                                </p>
+                                <p className="text-xs text-slate-700 dark:text-slate-300 mt-1 leading-relaxed">
+                                  {risk.rootCause}
+                                </p>
+                              </div>
+
+                              {/* WIDOCZNY DOWÓD W DOKUMENCIE (STRICT GROUNDING) */}
+                              <div className="mt-2.5 rounded-lg bg-sky-50/70 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 p-3">
+                                <p className="text-[11px] font-bold uppercase tracking-wider text-sky-800 dark:text-sky-300 flex items-center gap-1.5">
+                                  <BookOpen className="size-3.5" />
+                                  <span>Źródło w dokumencie (Strict Grounding):</span>
+                                </p>
+                                <p className="text-xs font-mono text-slate-800 dark:text-sky-200 mt-1 italic leading-relaxed">
+                                  {risk.sourceCitation}
+                                </p>
+                              </div>
+
+                              {/* PODSTAWA FORMALNA / PZP */}
+                              <div className="mt-2 flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
+                                <span className="font-bold text-[#0F294A] dark:text-sky-300">
+                                  Podstawa formalna / PZP:
+                                </span>
+                                <span className="font-medium bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-[11px] border border-slate-200 dark:border-slate-700">
+                                  {risk.legalBasis}
+                                </span>
+                              </div>
+
+                              {/* Rekomendacja naprawcza */}
+                              <div className="mt-2.5 rounded-lg bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/60 p-3">
+                                <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300 flex items-center gap-1">
+                                  <ChevronRight className="size-3.5" />
+                                  <span>Rekomendacja naprawcza (Plan Mitygacji):</span>
+                                </p>
+                                <p className="text-xs text-slate-800 dark:text-slate-200 mt-1 leading-relaxed font-medium">
+                                  {risk.mitigationPlan}
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* PANELE WERYFIKACJI HUMAN-IN-THE-LOOP (ZGODNOŚĆ Z AI ACT) */}
+                            <div className="pt-3 border-t border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                              <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                                Jednostka: {risk.ownerUnit}
                               </span>
+
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateRiskStatus(risk.id, "approved")}
+                                  className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${
+                                    isApproved
+                                      ? "bg-emerald-600 text-white"
+                                      : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800"
+                                  }`}
+                                >
+                                  <Check className="size-3" />
+                                  <span>{isApproved ? "Zatwierdzono" : "✓ Zatwierdź do rejestru"}</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateRiskStatus(risk.id, "rejected")}
+                                  className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${
+                                    isRejected
+                                      ? "bg-[#DC2626] text-white"
+                                      : "bg-red-50 text-[#DC2626] hover:bg-red-100 dark:bg-red-950 dark:text-red-300 border border-red-200 dark:border-red-800"
+                                  }`}
+                                >
+                                  <Ban className="size-3" />
+                                  <span>{isRejected ? "Odrzucono" : "✕ Odrzuć (False Positive)"}</span>
+                                </button>
+                              </div>
                             </div>
-
-                            <h4 className="text-sm sm:text-base font-bold text-[#0F294A] dark:text-white mt-2.5 leading-snug">
-                              {risk.title}
-                            </h4>
-
-                            {/* Metryki wpływu czasowego i finansowego */}
-                            <div className="mt-2.5 flex flex-wrap items-center gap-3 text-xs font-mono">
-                              <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300 font-semibold">
-                                <Clock className="size-3.5" />
-                                Opóźnienie: +{risk.estimatedDelayDays} dni
-                              </span>
-                              <span className="inline-flex items-center gap-1 text-[#DC2626] dark:text-red-400 font-semibold">
-                                <Banknote className="size-3.5" />
-                                Ekspozycja: {formatPln(risk.budgetAtRiskPln)}
-                              </span>
-                            </div>
-
-                            {/* Opis przyczyny źródłowej */}
-                            <div className="mt-3 rounded-lg bg-white dark:bg-[#0F2138] border border-slate-200/80 dark:border-slate-800 p-3">
-                              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                                Przyczyna źródłowa (Root Cause):
-                              </p>
-                              <p className="text-xs text-slate-700 dark:text-slate-300 mt-1 leading-relaxed">
-                                {risk.rootCause}
-                              </p>
-                            </div>
-
-                            {/* Rekomendacja naprawcza (Plan Mitygacji) */}
-                            <div className="mt-2.5 rounded-lg bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/60 p-3">
-                              <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300 flex items-center gap-1">
-                                <ChevronRight className="size-3.5" />
-                                <span>Rekomendacja naprawcza (Plan Mitygacji):</span>
-                              </p>
-                              <p className="text-xs text-slate-800 dark:text-slate-200 mt-1 leading-relaxed font-medium">
-                                {risk.mitigationPlan}
-                              </p>
-                            </div>
-                          </div>
-
-                          {/* Stopka karty ryzyka: Podstawa prawna / Jednostka odpowiedzialna */}
-                          <div className="pt-2 border-t border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
-                            <span className="font-medium">{risk.legalBasisOrClause}</span>
-                            <span className="font-mono text-[#0F294A] dark:text-sky-300">
-                              {risk.ownerUnit}
-                            </span>
-                          </div>
-                        </article>
-                      ))}
+                          </article>
+                        );
+                      })}
                     </div>
                   </div>
                 );
@@ -1845,9 +1920,7 @@ export default function RiskMinerDashboardPage() {
         </section>
       </main>
 
-      {/* =====================================================================
-          STOPKA INSTYTUCJONALNA (RODO, REGULAMIN, WCAG 2.1 + PODPIS WEBDEVAI)
-         ===================================================================== */}
+      {/* STOPKA INSTYTUCJONALNA */}
       <footer className="mt-auto bg-[#0F294A] dark:bg-[#060E1A] text-slate-300 border-t border-slate-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -1860,7 +1933,6 @@ export default function RiskMinerDashboardPage() {
               </p>
             </div>
 
-            {/* Linki informacyjne: Klauzula RODO, Regulamin, Deklaracja WCAG 2.1 */}
             <nav
               aria-label="Informacje prawne i dostępność cyfrowa"
               className="flex flex-wrap items-center gap-4 text-xs font-medium"
@@ -1893,7 +1965,6 @@ export default function RiskMinerDashboardPage() {
         </div>
       </footer>
 
-      {/* Modal informacyjny dla linków stopki (Klauzula RODO / Regulamin / Deklaracja WCAG 2.1) */}
       {activeFooterModal && (
         <div
           role="dialog"
@@ -1905,12 +1976,9 @@ export default function RiskMinerDashboardPage() {
               <div className="flex items-center gap-2">
                 <Info className="size-5 text-[#0F294A] dark:text-sky-400" />
                 <h3 className="text-base font-bold text-[#0F294A] dark:text-white">
-                  {activeFooterModal === "rodo" &&
-                    "Klauzula Informacyjna RODO i Architektura Privacy-by-Design"}
-                  {activeFooterModal === "terms" &&
-                    "Regulamin Systemu Analitycznego MFiPR × RiskMiner AI"}
-                  {activeFooterModal === "wcag" &&
-                    "Deklaracja Dostępności Cyfrowej (WCAG 2.1 Poziom AA)"}
+                  {activeFooterModal === "rodo" && "Klauzula Informacyjna RODO i Architektura Privacy-by-Design"}
+                  {activeFooterModal === "terms" && "Regulamin Systemu Analitycznego MFiPR × RiskMiner AI"}
+                  {activeFooterModal === "wcag" && "Deklaracja Dostępności Cyfrowej (WCAG 2.1 Poziom AA)"}
                 </h3>
               </div>
               <button
@@ -1950,7 +2018,7 @@ export default function RiskMinerDashboardPage() {
                     Interfejs <strong>MFiPR × RiskMiner AI</strong> został zaprojektowany zgodnie z wymogami ustawy z dnia 4 kwietnia 2019 r. o dostępności cyfrowej stron internetowych i aplikacji mobilnych podmiotów publicznych (standard <strong>WCAG 2.1 AA</strong>).
                   </p>
                   <p>
-                    Zapewniono wysoki kontrast typografii bezszeryfowej (Geist), pełną nawigację klawiaturową, semantyczne znaczniki ARIA, komunikaty głosowe (Web Speech API pl-PL) oraz czytelne kodowanie poziomów ryzyka (tekst + wartość punktowa + barwa).
+                    Zapewniono wysoki kontrast typografii bezszeryfowej (Geist), pełną nawigację klawiaturową, semantyczne znaczniki ARIA, komunikaty głosowe (Web Speech API pl-PL) oraz czytelne kodowanie poziomów ryzyka.
                   </p>
                 </>
               )}

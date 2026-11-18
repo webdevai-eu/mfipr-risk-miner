@@ -10,6 +10,9 @@ export type RiskSeverity = "Niskie" | "Średnie" | "Wysokie" | "Krytyczne";
 
 export type MatrixScore = 1 | 2 | 3 | 4 | 5;
 
+// Status weryfikacji eksperckiej Human-in-the-Loop zgodnie z AI Act
+export type VerificationStatus = "pending" | "approved" | "rejected";
+
 export interface InvestmentRiskItem {
   id: string;
   code: string;
@@ -21,9 +24,12 @@ export interface InvestmentRiskItem {
   estimatedDelayDays: number;
   budgetAtRiskPln: number;
   rootCause: string;
+  sourceCitation: string; // Dosłowny cytat z dokumentu źródłowego (Strict Grounding)
+  legalBasis: string; // Podstawa prawna / artykuł PZP / wytyczne UE
   mitigationPlan: string;
   legalBasisOrClause: string;
   ownerUnit: string;
+  verificationStatus?: VerificationStatus; // Domyślnie 'pending'
 }
 
 export interface InvestmentAnalysisReport {
@@ -118,7 +124,7 @@ NOTATKA Z KOMISJI PRZETARGOWEJ I RADY TECHNICZNEJ (Stan na listopad 2026):
 4. Na km 11+200 występuje niezinwentaryzowana kolizja z magistralą gazową wysokiego ciśnienia DN500 – operator GAZ-SYSTEM wymaga przebudowy poza okresem grzewczym, co zawęża okno wykonawcze do II-III kwartału.
 5. Limit waloryzacji w projekcie umowy określono na 10% (wskaźnik GUS), jednak przy obecnym wzroście cen asfaltów modyfikowanych, stali zbrojeniowej i betonu mostowego B50 istnieje ryzyko luki finansowej po stronie Zamawiającego rzędu 14,2 mln PLN (wydatki niekwalifikowalne).`;
 
-// Kompletny raport analityczny dla przypadku Demo Jury MFiPR
+// Kompletny raport analityczny dla przypadku Demo Jury MFiPR ze ścisłym ugruntowaniem (Strict Grounding)
 export const DEMO_JURY_REPORT: InvestmentAnalysisReport = {
   projectId: "FENX.04.01-IP.01-0042/25",
   projectTitle:
@@ -151,10 +157,14 @@ export const DEMO_JURY_REPORT: InvestmentAnalysisReport = {
       budgetAtRiskPln: 8_200_000,
       rootCause:
         "Oferta z najniższą ceną jest o 21,1% niższa od kosztorysu inwestorskiego i o 16,4% niższa od średniej arytmetycznej pozostałych ofert. Niedoszacowanie kosztów stali zbrojeniowej i deskowań obiektu MS-03 nad rzeką Gwdą rodzi wysokie prawdopodobieństwo wieloinstancyjnego sporu w KIO oraz Sądu Zamówień Publicznych.",
+      sourceCitation:
+        "„Najniższą ofertę złożyło Konsorcjum [...] na kwotę 169,2 mln PLN (o 21,1% poniżej kosztorysu). Drugi oferent zapowiedział odwołanie do KIO zarzucając rażąco niską cenę w pozycjach robót mostowych (obiekt MS-03 nad rzeką Gwdą).”",
+      legalBasis: "Art. 224 ust. 1–2 oraz Art. 513 ustawy Prawo zamówień publicznych (Pzp)",
       mitigationPlan:
         "Wdrożyć pogłębioną procedurę wezwania z art. 224 ust. 1 i 2 Pzp z żądaniem szczegółowych kalkulacji podwykonawczych i ofert hutniczych w terminie 7 dni. Przygotować kompletną matrycę dowodową dla Prokuratorii Generalnej RP przed rozprawą KIO.",
       legalBasisOrClause: "Art. 224 ust. 1–2 oraz Art. 513 ustawy Prawo zamówień publicznych (Pzp)",
       ownerUnit: "Wydział Zamówień Publicznych i Obsługi Prawnej",
+      verificationStatus: "pending",
     },
     {
       id: "risk-2",
@@ -168,10 +178,14 @@ export const DEMO_JURY_REPORT: InvestmentAnalysisReport = {
       budgetAtRiskPln: 11_400_000,
       rootCause:
         "Regionalny Dyrektor Ochrony Środowiska (RDOŚ) zakwestionował parametry hydrauliczne i światła przejścia zespolonego dla dużych ssaków na km 7+400. Brak uzgodnienia środowiskowego blokuje wydanie decyzji ZRID z rygorem natychmiastowej wykonalności przez Wojewodę.",
+      sourceCitation:
+        "„Wydanie decyzji ZRID przez Wojewodę jest zagrożone opóźnieniem ok. 65 dni z uwagi na konieczność uzupełnienia raportu ponownej oceny oddziaływania na środowisko (OOŚ) dla przejść dla dużych ssaków na km 7+400 – RDOŚ wezwał do korekty dokumentacji hydrologicznej.”",
+      legalBasis: "Art. 11a specustawy drogowej (ZRID) w zw. z art. 88 ustawy OOŚ",
       mitigationPlan:
         "Powołać zespół zadaniowy z nadzorem przyrodniczym i hydrologiem w celu złożenia skorygowanego aneksu OOŚ w ciągu 14 dni roboczych. Wystąpić o częściowy odbiór dokumentacji dla odcinka km 0+000 – 6+500.",
       legalBasisOrClause: "Art. 11a specustawy drogowej (ZRID) w zw. z art. 88 ustawy OOŚ",
       ownerUnit: "Zespół Ochrony Środowiska i Przygotowania Inwestycji",
+      verificationStatus: "pending",
     },
     {
       id: "risk-3",
@@ -185,10 +199,14 @@ export const DEMO_JURY_REPORT: InvestmentAnalysisReport = {
       budgetAtRiskPln: 18_400_000,
       rootCause:
         "Program Funkcjonalno-Użytkowy (PFU) oparto na archiwalnych odwiertach w siatce co 250 m, które nie wykazały soczewek torfów o miąższości 8,5 m. Wykonawca może skutecznie podnieść zarzut nieprzewidywalnych warunków fizycznych i żądać dopłaty za kolumny DSM/jet-grouting.",
+      sourceCitation:
+        "„W dokumentacji archiwalnej geotechnicznej wykryto rozbieżności dot. gruntów słabonośnych (torfy i namuły o miąższości do 8,5 m na odcinku km 4+100 – 5+850). Brak pełnego rozpoznania grozi roszczeniami wykonawcy z tytułu odmiennych warunków fizycznych (Subklauzula 4.12 FIDIC) na kwotę ok. 18,4 mln PLN.”",
+      legalBasis: "Subklauzula 4.12 FIDIC (Odmienne warunki fizyczne) / Art. 357(1) Kodeksu cywilnego",
       mitigationPlan:
         "Przeprowadzić niezwłoczne badania geofizyczne ERT przed przekazaniem placu budowy, uściślić ryczałtowy charakter ryzyka geotechnicznego w odpowiedziach na pytania SWZ oraz zabezpieczyć rezerwę celową w budżecie niekwalifikowanym.",
       legalBasisOrClause: "Subklauzula 4.12 Warunków Kontraktowych FIDIC (Odmienne warunki fizyczne)",
       ownerUnit: "Inżynier Kontraktu / Wydział Rozliczeń Inwestycji",
+      verificationStatus: "pending",
     },
     {
       id: "risk-4",
@@ -202,10 +220,14 @@ export const DEMO_JURY_REPORT: InvestmentAnalysisReport = {
       budgetAtRiskPln: 14_200_000,
       rootCause:
         "Przekroczenie progu waloryzacyjnego 10% przy galopujących cenach asfaltów modyfikowanych i betonu mostowego B50 może wymusić zawarcie aneksu zwiększającego wynagrodzenie na podstawie art. 455 ust. 1 pkt 4 Pzp, co CUPT/MFiPR bada pod kątem kwalifikowalności wydatków FEnIKS.",
+      sourceCitation:
+        "„Limit waloryzacji w projekcie umowy określono na 10% (wskaźnik GUS), jednak przy obecnym wzroście cen [...] istnieje ryzyko luki finansowej po stronie Zamawiającego rzędu 14,2 mln PLN (wydatki niekwalifikowalne).”",
+      legalBasis: "Art. 439 oraz Art. 455 ust. 1 pkt 4 Pzp / Wytyczne kwalifikowalności FEnIKS 2021–2027",
       mitigationPlan:
         "Zastosować transparentny koszyk waloryzacyjny oparty na wskaźnikach SEKOCENBUD i GUS z symetrycznym podziałem ryzyka (50/50) oraz uzyskać wyprzedzającą opinię Instytucji Pośredniczącej (CUPT) przed podpisaniem aneksu.",
       legalBasisOrClause: "Art. 439 oraz Art. 455 ust. 1 pkt 4 Pzp | Wytyczne kwalifikowalności FEnIKS",
       ownerUnit: "Komórka ds. Rozliczania Funduszy UE (FEnIKS)",
+      verificationStatus: "pending",
     },
     {
       id: "risk-5",
@@ -219,10 +241,14 @@ export const DEMO_JURY_REPORT: InvestmentAnalysisReport = {
       budgetAtRiskPln: 3_150_000,
       rootCause:
         "Operator GAZ-SYSTEM zezwala na wyłączenie i przełączenie czynnej magistrali DN500 wyłącznie poza sezonem grzewczym (15 maja – 15 września). Opóźnienie podpisania umowy przesunie roboty kolizyjne o pełny rok kalendarzowy.",
+      sourceCitation:
+        "„Na km 11+200 występuje niezinwentaryzowana kolizja z magistralą gazową wysokiego ciśnienia DN500 – operator GAZ-SYSTEM wymaga przebudowy poza okresem grzewczym, co zawęża okno wykonawcze do II-III kwartału.”",
+      legalBasis: "Ustawa Prawo energetyczne / Warunki techniczne usunięcia kolizji GAZ-SYSTEM",
       mitigationPlan:
         "Wydzielić dokumentację zamienną przebudowy kolizji gazowej DN500 jako Kamień Milowy nr 1 z priorytetowym uzgodnieniem warunków technicznych z GAZ-SYSTEM w pierwszych 30 dniach od podpisania umowy.",
       legalBasisOrClause: "Warunki techniczne usunięcia kolizji sieci przesyłowej GAZ-SYSTEM",
       ownerUnit: "Zespół Koordynacji Uzbrojenia Terenu (ZUD)",
+      verificationStatus: "pending",
     },
     {
       id: "risk-6",
@@ -236,10 +262,14 @@ export const DEMO_JURY_REPORT: InvestmentAnalysisReport = {
       budgetAtRiskPln: 1_900_000,
       rootCause:
         "Przesunięcie wydania decyzji ZRID na IV kwartał powoduje wejście etapu robót ziemnych w kontraktowy okres zimowy (15 grudnia – 15 marca), w którym wykonawca ma prawo zawiesić bieg terminów kamieni milowych.",
+      sourceCitation:
+        "„NOTATKA Z KOMISJI [...] Przesunięcie wydania decyzji ZRID na IV kwartał rodzi kolizję z umownym okresem zimowym (15 grudnia – 15 marca).”",
+      legalBasis: "Subklauzula 8.4 FIDIC / Szczególne Warunki Kontraktu GDDKiA",
       mitigationPlan:
         "Wprowadzić w Harmonogramie Rzeczowo-Finansowym (HRF) obowiązek prowadzenia w okresie zimowym prac przygotowawczych niepodlegających reżimowi temperatur (wycinka drzew, rozbiórki, prefabrykacja belek sprężonych w wytwórni).",
       legalBasisOrClause: "Subklauzula 8.4 FIDIC / Szczególne Warunki Kontraktu (Okresy zimowe)",
       ownerUnit: "Zespół Zarządzania Harmonogramem i Ścieżką Krytyczną",
+      verificationStatus: "pending",
     },
     {
       id: "risk-7",
@@ -253,10 +283,14 @@ export const DEMO_JURY_REPORT: InvestmentAnalysisReport = {
       budgetAtRiskPln: 6_450_000,
       rootCause:
         "Wysokie nasypy najazdowe (do 9,2 m) przed obiektem mostowym MS-03 posadowione na gruntach organicznych wymagają min. 120-dniowej konsolidacji lub zastąpienia wymiany gruntu technologią kolumn głębokościowych DSM.",
+      sourceCitation:
+        "„Wykryto rozbieżności dot. gruntów słabonośnych [...] na odcinku km 4+100 – 5+850 [...] pozycje robót mostowych (obiekt MS-03 nad rzeką Gwdą).”",
+      legalBasis: "Eurokod 7 (PN-EN 1997-1) Projektowanie geotechniczne / Warunki Techniczne WT-2",
       mitigationPlan:
         "Zoptymalizować technologię wzmocnienia podłoża poprzez zastosowanie kolumn CMC/DSM wraz z materacem geosyntetycznym i automatycznym monitoringiem inklinometrycznym osiadań w czasie rzeczywistym.",
       legalBasisOrClause: "Eurokod 7 (PN-EN 1997-1) oraz Warunki Wykonania i Odbioru Robót (WWiORB)",
       ownerUnit: "Główny Projektant Geotechniczny / Nadzór Inwestorski",
+      verificationStatus: "pending",
     },
     {
       id: "risk-8",
@@ -270,15 +304,19 @@ export const DEMO_JURY_REPORT: InvestmentAnalysisReport = {
       budgetAtRiskPln: 850_000,
       rootCause:
         "Jednoczesna realizacja trzech odcinków dróg ekspresowych w promieniu 80 km ogranicza dostępność kruszyw bazaltowych i granitowych oraz przepustowość bocznic kolejowych.",
+      sourceCitation:
+        "„Wzrost cen [...] stali zbrojeniowej i betonu mostowego B50 [...] ograniczenia logistyczne w dostawach kruszyw dla podbudowy.”",
+      legalBasis: "Wymagania Techniczne WT-4 Mieszanki niezwiązane GDDKiA / PN-EN 13242",
       mitigationPlan:
         "Zobowiązać wykonawcę w Planie Zapewnienia Jakości (PZJ) do zatwierdzenia min. dwóch alternatywnych kopalń kruszyw oraz utworzenia buforowego składowiska 40 000 ton na placu budowy.",
       legalBasisOrClause: "WT-4 Mieszanki niezwiązane do dróg krajowych GDDKiA",
       ownerUnit: "Laboratorium Drogowe i Zespół Technologii",
+      verificationStatus: "pending",
     },
   ],
 };
 
-// Funkcja tworząca dynamiczny raport na podstawie wprowadzonego opisu użytkownika (gdy endpoint API jest w przygotowaniu lub offline)
+// Funkcja tworząca dynamiczny raport na podstawie wprowadzonego opisu użytkownika
 export function buildLocalFallbackReport(
   inputText: string,
   uploadedFileName: string | null,
@@ -287,7 +325,6 @@ export function buildLocalFallbackReport(
   const { processedText } = applyRodoShieldMasking(inputText, rodoEnabled);
   const lower = processedText.toLowerCase();
 
-  // Jeśli tekst odpowiada scenariuszowi Demo Jury lub jest bardzo krótki, dopasowujemy parametry
   const isDemoMatch =
     lower.includes("dk-22") ||
     lower.includes("feniks") ||
@@ -301,7 +338,6 @@ export function buildLocalFallbackReport(
     };
   }
 
-  // Wykrywanie słów kluczowych w opisie użytkownika
   const hasKio = lower.includes("kio") || lower.includes("odwołan") || lower.includes("przetarg");
   const hasZrid = lower.includes("zrid") || lower.includes("środowisk") || lower.includes("rdoś") || lower.includes("pozwolen");
   const hasGeo = lower.includes("geotechn") || lower.includes("grunt") || lower.includes("kolizj") || lower.includes("wod");
