@@ -48,74 +48,74 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* Motyw instytucjonalny GovTech MFiPR (Jasny domyślny) */
+/* Oficjalna paleta barw gov.pl dla Ministerstwa Funduszy i Polityki Regionalnej */
 :root {
-  --background: #F8FAFC;
-  --foreground: #0F294A;
+  --background: #F4F5F7;
+  --foreground: #002D62;
   --card: #FFFFFF;
-  --card-foreground: #0F294A;
+  --card-foreground: #002D62;
   --popover: #FFFFFF;
-  --popover-foreground: #0F294A;
-  --primary: #0F294A;
+  --popover-foreground: #002D62;
+  --primary: #D52B1E;
   --primary-foreground: #FFFFFF;
-  --secondary: #E2E8F0;
-  --secondary-foreground: #0F294A;
-  --muted: #F1F5F9;
-  --muted-foreground: #475569;
-  --accent: #E2E8F0;
-  --accent-foreground: #0F294A;
-  --destructive: #DC2626;
-  --border: #CBD5E1;
-  --input: #CBD5E1;
-  --ring: #0F294A;
+  --secondary: #E5E7EB;
+  --secondary-foreground: #002D62;
+  --muted: #F3F4F6;
+  --muted-foreground: #4B5563;
+  --accent: #E5E7EB;
+  --accent-foreground: #002D62;
+  --destructive: #D52B1E;
+  --border: #D1D5DB;
+  --input: #D1D5DB;
+  --ring: #002D62;
   --chart-1: #059669;
   --chart-2: #D97706;
   --chart-3: #EA580C;
-  --chart-4: #DC2626;
-  --chart-5: #0F294A;
-  --radius: 0.625rem;
+  --chart-4: #D52B1E;
+  --chart-5: #002D62;
+  --radius: 0.5rem;
   --sidebar: #FFFFFF;
-  --sidebar-foreground: #0F294A;
-  --sidebar-primary: #0F294A;
+  --sidebar-foreground: #002D62;
+  --sidebar-primary: #002D62;
   --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #F1F5F9;
-  --sidebar-accent-foreground: #0F294A;
-  --sidebar-border: #E2E8F0;
-  --sidebar-ring: #0F294A;
+  --sidebar-accent: #F3F4F6;
+  --sidebar-accent-foreground: #002D62;
+  --sidebar-border: #E5E7EB;
+  --sidebar-ring: #002D62;
 }
 
-/* Motyw Dark Mode dla centrum analitycznego */
+/* Motyw Dark Mode z zachowaniem instytucjonalnego kontrastu */
 .dark {
-  --background: #071120;
+  --background: #0B132B;
   --foreground: #F8FAFC;
-  --card: #0F2138;
+  --card: #152238;
   --card-foreground: #F8FAFC;
-  --popover: #0F2138;
+  --popover: #152238;
   --popover-foreground: #F8FAFC;
-  --primary: #38BDF8;
-  --primary-foreground: #071120;
+  --primary: #EF4444;
+  --primary-foreground: #0B132B;
   --secondary: #1E3A5F;
   --secondary-foreground: #F8FAFC;
-  --muted: #132A46;
+  --muted: #1A2E4C;
   --muted-foreground: #94A3B8;
   --accent: #1E3A5F;
   --accent-foreground: #F8FAFC;
   --destructive: #EF4444;
-  --border: #1E3A5F;
-  --input: #1E3A5F;
+  --border: #23395B;
+  --input: #23395B;
   --ring: #38BDF8;
   --chart-1: #10B981;
   --chart-2: #F59E0B;
   --chart-3: #F97316;
   --chart-4: #EF4444;
   --chart-5: #38BDF8;
-  --sidebar: #0F2138;
+  --sidebar: #152238;
   --sidebar-foreground: #F8FAFC;
   --sidebar-primary: #38BDF8;
-  --sidebar-primary-foreground: #071120;
-  --sidebar-accent: #132A46;
+  --sidebar-primary-foreground: #0B132B;
+  --sidebar-accent: #1A2E4C;
   --sidebar-accent-foreground: #F8FAFC;
-  --sidebar-border: #1E3A5F;
+  --sidebar-border: #23395B;
   --sidebar-ring: #38BDF8;
 }
 

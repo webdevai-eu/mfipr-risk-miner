@@ -22,18 +22,19 @@ import {
   Scale,
   CalendarClock,
   Wrench,
-  Landmark,
+  Building2,
   Info,
   X,
   Eye,
   EyeOff,
   ChevronRight,
-  Sliders,
+  SlidersHorizontal,
   Cpu,
   BookOpen,
   Check,
   Ban,
   UserCheck,
+  ChevronDown,
 } from "lucide-react";
 import { CookieBanner } from "@/components/cookie-banner";
 import {
@@ -50,7 +51,6 @@ import {
   buildLocalFallbackReport,
 } from "@/lib/risk-data";
 
-// Interfejsy dla Web Speech API (zgodne ze strict TypeScript bez użycia any)
 interface SpeechRecognitionAlternativeItem {
   transcript: string;
   confidence: number;
@@ -96,7 +96,6 @@ interface WindowWithSpeechRecognition extends Window {
   webkitSpeechRecognition?: SpeechRecognitionConstructor;
 }
 
-// Typ odpowiedzi z endpointu /api/analyze-risk
 interface GeminiApiResponse {
   projectTitle?: string;
   estimatedBudgetPln?: number;
@@ -119,10 +118,8 @@ interface GeminiApiResponse {
   error?: string;
 }
 
-// Typy zakładek informacyjnych w stopce (RODO, Regulamin, WCAG 2.1)
 type FooterModalType = "rodo" | "terms" | "wcag" | null;
 
-// Lista wszystkich kategorii ryzyk w ustalonej kolejności prezentacji
 const RISK_CATEGORIES: RiskCategory[] = [
   "Formalno-prawne",
   "Finansowe",
@@ -130,7 +127,6 @@ const RISK_CATEGORIES: RiskCategory[] = [
   "Techniczne",
 ];
 
-// Skala osi Prawdopodobieństwa (od 5 na górze do 1 na dole) i Wpływu (od 1 do 5)
 const PROBABILITY_AXIS: MatrixScore[] = [5, 4, 3, 2, 1];
 const IMPACT_AXIS: MatrixScore[] = [1, 2, 3, 4, 5];
 
@@ -150,7 +146,6 @@ const IMPACT_LABELS: Record<MatrixScore, string> = {
   5: "5 – Katastrofalny",
 };
 
-// Formatowanie kwot w PLN zgodnie z polskim standardem instytucjonalnym
 function formatPln(amount: number): string {
   return new Intl.NumberFormat("pl-PL", {
     style: "currency",
@@ -159,7 +154,6 @@ function formatPln(amount: number): string {
   }).format(Math.round(amount));
 }
 
-// Dodawanie dni do daty w formacie YYYY-MM-DD
 function addDaysToIsoDate(isoDate: string, daysToAdd: number): string {
   const parsed = new Date(`${isoDate}T12:00:00Z`);
   if (Number.isNaN(parsed.getTime())) return isoDate;
@@ -167,7 +161,6 @@ function addDaysToIsoDate(isoDate: string, daysToAdd: number): string {
   return parsed.toISOString().slice(0, 10);
 }
 
-// Obliczanie różnicy dni pomiędzy dwiema datami YYYY-MM-DD (target - reference)
 function diffDaysBetweenIsoDates(firstIso: string, secondIso: string): number {
   const d1 = new Date(`${firstIso}T12:00:00Z`).getTime();
   const d2 = new Date(`${secondIso}T12:00:00Z`).getTime();
@@ -176,10 +169,8 @@ function diffDaysBetweenIsoDates(firstIso: string, secondIso: string): number {
 }
 
 export default function RiskMinerDashboardPage() {
-  // Stan motywu (Jasny domyślny vs Dark Mode)
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
 
-  // Stany sekcji wejściowej inwestycji
   const [inputText, setInputText] = useState<string>(DEMO_JURY_INPUT_TEXT);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(
     "HRF_SWZ_Obwodnica_DK22_FEnIKS_2026.pdf"
@@ -191,21 +182,18 @@ export default function RiskMinerDashboardPage() {
   const [rodoShieldEnabled, setRodoShieldEnabled] = useState<boolean>(true);
   const [showMaskedPreview, setShowMaskedPreview] = useState<boolean>(false);
 
-  // Stany nagrywania głosu (Web Speech API)
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [speechStatusMessage, setSpeechStatusMessage] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognitionBrowserInstance | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Stan analizy i aktywnego raportu (domyślnie załadowany scenariusz Demo Jury MFiPR)
   const [report, setReport] = useState<InvestmentAnalysisReport>(DEMO_JURY_REPORT);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [statusBanner, setStatusBanner] = useState<string>(
     "Załadowano scenariusz referencyjny: Budowa obwodnicy północnej w ciągu DK-22 (FEnIKS 148 mln PLN)."
   );
 
-  // Stan filtrowania Macierzy Ryzyka 5×5 oraz kategorii
   const [selectedMatrixCell, setSelectedMatrixCell] = useState<{
     probability: MatrixScore;
     impact: MatrixScore;
@@ -214,14 +202,11 @@ export default function RiskMinerDashboardPage() {
     "ALL"
   );
 
-  // Stan Symulatora Scenariuszy „What-If” (W czasie rzeczywistym)
   const [proceduralDelaySliderDays, setProceduralDelaySliderDays] = useState<number>(35);
   const [costIndexationSliderPercent, setCostIndexationSliderPercent] = useState<number>(8);
 
-  // Stan modala informacyjnego w stopce (RODO / Regulamin / WCAG 2.1)
   const [activeFooterModal, setActiveFooterModal] = useState<FooterModalType>(null);
 
-  // Synchronizacja klasy .dark na elemencie <html>
   useEffect(() => {
     const root = document.documentElement;
     if (isDarkMode) {
@@ -231,7 +216,6 @@ export default function RiskMinerDashboardPage() {
     }
   }, [isDarkMode]);
 
-  // Czyszczenie timerów i mikrofonu przy odmontowaniu komponentu
   useEffect(() => {
     return () => {
       if (silenceTimerRef.current) {
@@ -243,12 +227,10 @@ export default function RiskMinerDashboardPage() {
     };
   }, []);
 
-  // Wynik działania lokalnego filtra RODO Shield na aktualnym tekście wejściowym
   const rodoMaskResult = useMemo(() => {
     return applyRodoShieldMasking(inputText, rodoShieldEnabled);
   }, [inputText, rodoShieldEnabled]);
 
-  // Zatrzymanie dyktowania głosowego
   const stopVoiceDictation = useCallback((reasonMessage?: string) => {
     if (silenceTimerRef.current) {
       clearTimeout(silenceTimerRef.current);
@@ -258,7 +240,7 @@ export default function RiskMinerDashboardPage() {
       try {
         recognitionRef.current.stop();
       } catch {
-        // Ignorujemy błąd jeśli instancja została już zatrzymana
+        // Ignorujemy błędy zatrzymania
       }
       recognitionRef.current = null;
     }
@@ -268,7 +250,6 @@ export default function RiskMinerDashboardPage() {
     }
   }, []);
 
-  // Obsługa Human-in-the-Loop: zmiana statusu weryfikacji ryzyka (approved / rejected / pending)
   const handleUpdateRiskStatus = (riskId: string, newStatus: VerificationStatus) => {
     setReport((prev) => ({
       ...prev,
@@ -283,7 +264,6 @@ export default function RiskMinerDashboardPage() {
     }));
   };
 
-  // Statystyki Human-in-the-Loop zgodne z AI Act
   const humanInTheLoopStats = useMemo(() => {
     const approved = report.risks.filter((r) => r.verificationStatus === "approved").length;
     const rejected = report.risks.filter((r) => r.verificationStatus === "rejected").length;
@@ -293,7 +273,6 @@ export default function RiskMinerDashboardPage() {
     return { approved, rejected, pending, total: report.risks.length };
   }, [report.risks]);
 
-  // Uruchomienie / zatrzymanie dyktowania głosowego (Web Speech API, pl-PL, continuous=true, auto-stop po 3 s ciszy)
   const handleToggleVoiceDictation = () => {
     if (isRecording) {
       stopVoiceDictation("Zakończono nagrywanie notatki głosowej.");
@@ -366,7 +345,6 @@ export default function RiskMinerDashboardPage() {
     resetSilenceTimeout();
   };
 
-  // Konwersja pliku do bazy 64
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -380,7 +358,6 @@ export default function RiskMinerDashboardPage() {
     });
   };
 
-  // Obsługa wczytania pliku z dysku lub Drag & Drop (.pdf, .csv, .txt)
   const processSelectedFile = async (file: File) => {
     const allowedExtensions = [".pdf", ".csv", ".txt"];
     const lowerName = file.name.toLowerCase();
@@ -447,7 +424,6 @@ export default function RiskMinerDashboardPage() {
     }
   };
 
-  // Główna funkcja analityczna łącząca się z /api/analyze-risk (Gemini 2.5 Flash)
   async function analyzeInvestment(options?: {
     customText?: string;
     customFileName?: string | null;
@@ -469,7 +445,6 @@ export default function RiskMinerDashboardPage() {
     setSelectedMatrixCell(null);
     setSelectedCategoryFilter("ALL");
 
-    // Maskowanie danych wrażliwych przed wysłaniem do modelu AI (RODO Shield)
     const { processedText, maskedCount } = applyRodoShieldMasking(
       rawSource,
       rodoShieldEnabled
@@ -579,7 +554,6 @@ export default function RiskMinerDashboardPage() {
         }
       }
 
-      console.warn("Przełączam na inteligentny silnik lokalny MFiPR");
       const localReport = buildLocalFallbackReport(rawSource, targetFileName, rodoShieldEnabled);
       setReport(localReport);
       setStatusBanner(
@@ -597,7 +571,6 @@ export default function RiskMinerDashboardPage() {
     }
   }
 
-  // Obsługa przycisku „Załaduj przykładową inwestycję (Demo Jury MFiPR)”
   const handleLoadDemoJuryInvestment = () => {
     setInputText(DEMO_JURY_INPUT_TEXT);
     setUploadedFileName("HRF_SWZ_Obwodnica_DK22_FEnIKS_2026.pdf");
@@ -611,14 +584,11 @@ export default function RiskMinerDashboardPage() {
     });
   };
 
-  // Wyliczenia w czasie rzeczywistym z uwzględnieniem weryfikacji Human-in-the-Loop
-  // Odrzucone ryzyka (rejected) są automatycznie wykluczane z wyliczeń KPI i symulatora!
   const activeUnrejectedRisks = useMemo(() => {
     return report.risks.filter((r) => r.verificationStatus !== "rejected");
   }, [report.risks]);
 
   const simulationMetrics = useMemo(() => {
-    // Obliczamy opóźnienie i zagrożony budżet na bazie aktywnych, nieodrzuconych ryzyk
     const activeThreatened = activeUnrejectedRisks.reduce((acc, curr) => acc + curr.budgetAtRiskPln, 0);
     const activeMaxDelay =
       activeUnrejectedRisks.length > 0
@@ -640,7 +610,6 @@ export default function RiskMinerDashboardPage() {
     const simulatedThreatenedBudgetPln =
       activeThreatened + additionalIndexationCostPln * 0.65;
 
-    // Dynamiczny indeks ryzyka skalowany liczbą aktywnych ryzyk
     const activeCritical = activeUnrejectedRisks.filter((r) => r.severity === "Krytyczne").length;
     const activeHigh = activeUnrejectedRisks.filter((r) => r.severity === "Wysokie").length;
 
@@ -663,7 +632,6 @@ export default function RiskMinerDashboardPage() {
     };
   }, [report, activeUnrejectedRisks, proceduralDelaySliderDays, costIndexationSliderPercent]);
 
-  // Filtrowanie listy ryzyk wg wybranej komórki Macierzy 5×5 oraz wybranej kategorii
   const filteredRisks = useMemo(() => {
     return report.risks.filter((risk) => {
       const matchesCell =
@@ -676,7 +644,6 @@ export default function RiskMinerDashboardPage() {
     });
   }, [report.risks, selectedMatrixCell, selectedCategoryFilter]);
 
-  // Grupowanie przefiltrowanych ryzyk wg 4 kategorii wymaganych przez MFiPR
   const groupedRisksByCategory = useMemo(() => {
     const groups: Record<RiskCategory, InvestmentRiskItem[]> = {
       "Formalno-prawne": [],
@@ -690,14 +657,12 @@ export default function RiskMinerDashboardPage() {
     return groups;
   }, [filteredRisks]);
 
-  // Funkcja pomocnicza zwracająca listę aktywnych ryzyk w danej komórce Macierzy 5×5
   const getRisksInMatrixCell = (probability: MatrixScore, impact: MatrixScore) => {
     return report.risks.filter(
       (r) => r.probability === probability && r.impact === impact
     );
   };
 
-  // Eksport Raportu (.txt) dla Komitetu Sterującego
   const handleDownloadSteeringCommitteeReport = () => {
     const nowFormatted = new Date().toLocaleString("pl-PL", {
       dateStyle: "short",
@@ -711,7 +676,7 @@ export default function RiskMinerDashboardPage() {
       "================================================================================",
       `Data wygenerowania raportu : ${nowFormatted}`,
       `Silnik analityczny         : ${report.modelEngine} (Strict Grounding / Gemini 2.5 Flash)`,
-      `Status AI Act (HITL)       : Zatwierdzone: ${humanInTheLoopStats.approved} | Odrzucone (False Positive): ${humanInTheLoopStats.rejected} | Do przeglądu: ${humanInTheLoopStats.pending}`,
+      `Status AI Act (HITL)       : Zatwierdzone: ${humanInTheLoopStats.approved} | Odrzucone: ${humanInTheLoopStats.rejected} | Do przeglądu: ${humanInTheLoopStats.pending}`,
       `Status ochrony RODO Shield : ${
         rodoShieldEnabled
           ? `AKTYWNY (Zanonimizowano ${rodoMaskResult.maskedCount} encji wrażliwych)`
@@ -763,7 +728,7 @@ export default function RiskMinerDashboardPage() {
         lines.push(
           `--------------------------------------------------------------------------------`,
           `[${r.code}] ${r.title} | STATUS HITL: ${(r.verificationStatus || "pending").toUpperCase()}`,
-          `Poziom ryzyka : ${r.severity.toUpperCase()} (Prawdopodobieństwo: ${r.probability}/5, Wpływ: ${r.impact}/5, Wynik: ${
+          `Poziom ryzyka : ${r.severity.toUpperCase()} (P: ${r.probability}/5, W: ${r.impact}/5, Wynik: ${
             r.probability * r.impact
           }/25)`,
           `Wpływ czasowy : +${r.estimatedDelayDays} dni | Ekspozycja finansowa: ${formatPln(r.budgetAtRiskPln)}`,
@@ -799,7 +764,7 @@ export default function RiskMinerDashboardPage() {
   const getSeverityBadgeClasses = (severity: RiskSeverity): string => {
     switch (severity) {
       case "Krytyczne":
-        return "bg-[#DC2626] text-white border-[#DC2626] shadow-xs";
+        return "bg-[#D52B1E] text-white border-[#D52B1E] shadow-xs";
       case "Wysokie":
         return "bg-orange-600 text-white border-orange-600";
       case "Średnie":
@@ -817,14 +782,14 @@ export default function RiskMinerDashboardPage() {
   ): string => {
     const severity = calculateMatrixSeverity(probability, impact);
     const selectionRing = isSelected
-      ? "ring-4 ring-[#0F294A] dark:ring-sky-400 scale-[1.03] z-10 shadow-md"
+      ? "ring-4 ring-[#002D62] dark:ring-sky-400 scale-[1.03] z-10 shadow-md"
       : "hover:scale-[1.02] hover:shadow-sm";
 
     const opacityStyle = hasRisks ? "opacity-100" : "opacity-65 hover:opacity-95";
 
     switch (severity) {
       case "Krytyczne":
-        return `bg-[#DC2626]/90 dark:bg-[#DC2626]/85 text-white border-[#B91C1C] ${selectionRing} ${opacityStyle}`;
+        return `bg-[#D52B1E]/90 dark:bg-[#D52B1E]/85 text-white border-[#B01F15] ${selectionRing} ${opacityStyle}`;
       case "Wysokie":
         return `bg-orange-500/90 dark:bg-orange-600/80 text-white border-orange-600 ${selectionRing} ${opacityStyle}`;
       case "Średnie":
@@ -837,82 +802,83 @@ export default function RiskMinerDashboardPage() {
   const renderCategoryIcon = (category: RiskCategory) => {
     switch (category) {
       case "Formalno-prawne":
-        return <Scale className="size-5 text-[#0F294A] dark:text-sky-400" />;
+        return <Scale className="size-5 text-[#002D62] dark:text-sky-400" strokeWidth={1.75} />;
       case "Finansowe":
-        return <Banknote className="size-5 text-amber-600 dark:text-amber-400" />;
+        return <Banknote className="size-5 text-amber-600 dark:text-amber-400" strokeWidth={1.75} />;
       case "Harmonogramowe":
-        return <CalendarClock className="size-5 text-orange-600 dark:text-orange-400" />;
+        return <CalendarClock className="size-5 text-orange-600 dark:text-orange-400" strokeWidth={1.75} />;
       case "Techniczne":
-        return <Wrench className="size-5 text-emerald-600 dark:text-emerald-400" />;
+        return <Wrench className="size-5 text-emerald-600 dark:text-emerald-400" strokeWidth={1.75} />;
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#F8FAFC] dark:bg-[#071120] text-[#0F294A] dark:text-slate-100 font-sans">
+    <div className="min-h-screen flex flex-col bg-[#F4F5F7] dark:bg-[#0B132B] text-[#002D62] dark:text-slate-100 font-sans">
       <CookieBanner />
 
-      {/* Górny pasek Rzeczypospolitej Polskiej / GovTech */}
-      <div className="bg-[#091A32] text-slate-200 text-xs py-1.5 px-4 border-b border-slate-800">
-        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="inline-block w-3 h-2 bg-white border-b-4 border-[#DC2626] rounded-[1px]" />
-            <span className="font-medium tracking-wide">
-              GOVTECH POLSKA • SYSTEM WCZESNEGO OSTRZEGANIA O RYZYKACH INWESTYCJI PUBLICZNYCH
-            </span>
-          </div>
-          <div className="flex items-center gap-4 text-[11px] text-slate-300">
-            <span>HackNation 2026 • Zadanie: RISK MINER</span>
-            <span className="hidden sm:inline">|</span>
-            <span className="hidden sm:inline font-mono text-emerald-400">
-              Standard: WCAG 2.1 AA / AI Act Human-in-the-Loop
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* GŁÓWNY NAGŁÓWEK INSTYTUCJONALNY (#0F294A) */}
-      <header className="sticky top-0 z-30 bg-[#0F294A] dark:bg-[#0A192F] text-white shadow-md border-b border-slate-700/80">
+      {/* 1. OFICJALNY NAGŁÓWEK GOV.PL / MFiPR */}
+      <header className="sticky top-0 z-30 bg-white dark:bg-[#152238] border-b border-[#D1D5DB] dark:border-slate-800 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3.5">
-            <div className="flex items-center justify-center size-11 rounded-xl bg-white/10 border border-white/20 shadow-inner">
-              <Landmark className="size-6 text-amber-400" />
-            </div>
-            <div>
-              <div className="flex flex-wrap items-center gap-2.5">
-                <h1 className="text-lg sm:text-xl font-bold tracking-tight text-white">
-                  MFiPR × RiskMiner AI | Analiza Ryzyk Inwestycji Publicznych
-                </h1>
+          <div className="flex items-center gap-4">
+            {/* Znak gov.pl zgodny z Księgą Znaku gov.pl */}
+            <div className="flex items-center gap-2">
+              <div className="flex flex-col w-6 h-5 rounded-[2px] overflow-hidden border border-slate-300 dark:border-slate-600 shadow-2xs shrink-0">
+                <div className="h-1/2 bg-white" />
+                <div className="h-1/2 bg-[#D52B1E]" />
               </div>
-              <p className="text-xs text-slate-300 mt-0.5">
-                Ministerstwo Funduszy i Polityki Regionalnej • Monitoring Ścieżki Krytycznej FEnIKS &amp; KPO
+              <span className="font-extrabold text-lg tracking-tight text-[#002D62] dark:text-white font-sans">
+                gov<span className="text-[#D52B1E]">.pl</span>
+              </span>
+            </div>
+
+            <div className="h-6 w-[1px] bg-slate-300 dark:bg-slate-700 hidden sm:block" />
+
+            {/* Pełna nazwa instytucji i podtytuł */}
+            <div>
+              <h1 className="text-sm sm:text-base font-bold text-[#002D62] dark:text-white tracking-tight leading-snug">
+                Ministerstwo Funduszy i Polityki Regionalnej
+              </h1>
+              <p className="text-xs text-slate-600 dark:text-slate-300">
+                RiskMiner AI — System Analizy Ryzyk Inwestycji Publicznych
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-400/40 px-3 py-1 text-xs font-medium text-emerald-200">
-              <Sparkles className="size-3.5 text-emerald-400" />
-              <span>Model-Agnostic: Gemini 2.5 Flash / PLLuM-Ready</span>
+            <div className="hidden lg:inline-flex items-center gap-1.5 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-1 text-xs font-semibold text-[#002D62] dark:text-sky-300">
+              <Building2 className="size-3.5 text-[#D52B1E]" strokeWidth={1.75} />
+              <span>Programy: FEnIKS • KPO • Fundusze Europejskie 2021–2027</span>
             </div>
 
             <button
               type="button"
               onClick={() => setIsDarkMode((prev) => !prev)}
               aria-label={isDarkMode ? "Przełącz na motyw jasny GovTech" : "Przełącz na motyw ciemny"}
-              className="inline-flex items-center gap-2 rounded-lg bg-white/10 hover:bg-white/20 active:bg-white/25 border border-white/20 px-3 py-1.5 text-xs font-medium text-white transition-colors cursor-pointer"
+              className="inline-flex items-center gap-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs font-semibold text-[#002D62] dark:text-white transition-colors cursor-pointer"
             >
               {isDarkMode ? (
                 <>
-                  <Sun className="size-4 text-amber-300" />
+                  <Sun className="size-4 text-amber-400" strokeWidth={1.75} />
                   <span className="hidden md:inline">Tryb Jasny</span>
                 </>
               ) : (
                 <>
-                  <Moon className="size-4 text-sky-200" />
-                  <span className="hidden md:inline">Dark Mode</span>
+                  <Moon className="size-4 text-[#002D62]" strokeWidth={1.75} />
+                  <span className="hidden md:inline">Tryb Ciemny</span>
                 </>
               )}
             </button>
+          </div>
+        </div>
+
+        {/* Pasek okruszków (breadcrumbs) gov.pl */}
+        <div className="bg-[#E5E7EB]/60 dark:bg-[#0E1A2D] border-t border-b border-slate-200 dark:border-slate-800/80 px-4 sm:px-6 lg:px-8 py-1.5 text-xs text-slate-600 dark:text-slate-400">
+          <div className="max-w-7xl mx-auto flex items-center gap-1.5">
+            <span className="hover:underline cursor-pointer">Strona główna</span>
+            <span className="text-slate-400">/</span>
+            <span className="hover:underline cursor-pointer">Inwestycje i Fundusze UE</span>
+            <span className="text-slate-400">/</span>
+            <span className="font-semibold text-[#002D62] dark:text-white">RiskMiner AI</span>
           </div>
         </div>
       </header>
@@ -920,19 +886,19 @@ export default function RiskMinerDashboardPage() {
       {/* GŁÓWNA ZAWARTOŚĆ STRONY */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         {/* Pasek statusu operacyjnego */}
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white dark:bg-[#0F2138] border border-slate-200 dark:border-slate-800 px-4 py-2.5 shadow-2xs">
-          <div className="flex items-center gap-2.5 text-xs sm:text-sm text-[#0F294A] dark:text-slate-200">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white dark:bg-[#152238] border border-[#D1D5DB] dark:border-slate-800 px-4 py-2.5 shadow-2xs">
+          <div className="flex items-center gap-2.5 text-xs sm:text-sm text-[#002D62] dark:text-slate-200">
             {isAnalyzing ? (
-              <Cpu className="size-4 text-amber-500 animate-spin shrink-0" />
+              <Cpu className="size-4 text-[#D52B1E] animate-spin shrink-0" strokeWidth={1.75} />
             ) : (
-              <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={1.75} />
             )}
-            <span className="font-medium">{statusBanner}</span>
+            <span className="font-semibold">{statusBanner}</span>
           </div>
-          <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-mono">
+          <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400 font-mono">
             <span>Projekt: {report.projectId}</span>
             <span>•</span>
-            <span>Model: {report.modelEngine}</span>
+            <span>Silnik: {report.modelEngine}</span>
             <span>•</span>
             <span>Ryzyk w macierzy: {report.risks.length}</span>
           </div>
@@ -943,17 +909,17 @@ export default function RiskMinerDashboardPage() {
            ===================================================================== */}
         <section
           aria-labelledby="investment-input-heading"
-          className="rounded-2xl bg-white dark:bg-[#0F2138] border border-slate-200/90 dark:border-slate-800 shadow-xs overflow-hidden"
+          className="rounded-2xl bg-white dark:bg-[#152238] border border-[#D1D5DB] dark:border-slate-800 shadow-xs overflow-hidden"
         >
-          <div className="bg-slate-50/90 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800 px-5 py-4 flex flex-wrap items-center justify-between gap-4">
+          <div className="bg-slate-50/90 dark:bg-slate-900/50 border-b border-[#D1D5DB] dark:border-slate-800 px-5 py-4 flex flex-wrap items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-2">
-                <span className="inline-flex items-center justify-center size-6 rounded-md bg-[#0F294A] text-white text-xs font-bold">
+                <span className="inline-flex items-center justify-center size-6 rounded-md bg-[#002D62] text-white text-xs font-bold">
                   1
                 </span>
                 <h2
                   id="investment-input-heading"
-                  className="text-base sm:text-lg font-bold text-[#0F294A] dark:text-white"
+                  className="text-base sm:text-lg font-bold text-[#002D62] dark:text-white"
                 >
                   Panel Wejściowy Inwestycji Publicznej (Wieloźródłowa Ingestia Danych)
                 </h2>
@@ -967,14 +933,14 @@ export default function RiskMinerDashboardPage() {
             <div className="flex items-center gap-3 bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 rounded-xl px-3.5 py-2">
               <div className="flex items-center gap-2">
                 {rodoShieldEnabled ? (
-                  <ShieldCheck className="size-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <ShieldCheck className="size-5 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={1.75} />
                 ) : (
-                  <ShieldAlert className="size-5 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <ShieldAlert className="size-5 text-amber-600 dark:text-amber-400 shrink-0" strokeWidth={1.75} />
                 )}
                 <div>
                   <label
                     htmlFor="rodo-shield-toggle"
-                    className="text-xs font-bold text-[#0F294A] dark:text-emerald-100 cursor-pointer block"
+                    className="text-xs font-bold text-[#002D62] dark:text-emerald-100 cursor-pointer block"
                   >
                     RODO Shield (Lokalne maskowanie danych wykonawców i PESEL)
                   </label>
@@ -1018,8 +984,8 @@ export default function RiskMinerDashboardPage() {
                 onClick={() => fileInputRef.current?.click()}
                 className={`flex-1 flex flex-col items-center justify-center text-center rounded-xl border-2 border-dashed p-5 transition-all cursor-pointer ${
                   isDraggingFile
-                    ? "border-[#0F294A] bg-sky-50/70 dark:border-sky-400 dark:bg-sky-950/30"
-                    : "border-slate-300 dark:border-slate-700 hover:border-[#0F294A] dark:hover:border-sky-400 bg-slate-50/60 dark:bg-slate-900/40"
+                    ? "border-[#D52B1E] bg-red-50/50 dark:border-red-400 dark:bg-red-950/20"
+                    : "border-slate-300 dark:border-slate-700 hover:border-[#D52B1E] dark:hover:border-red-400 bg-slate-50/60 dark:bg-slate-900/40"
                 }`}
               >
                 <input
@@ -1029,10 +995,10 @@ export default function RiskMinerDashboardPage() {
                   onChange={handleFileInputChange}
                   className="hidden"
                 />
-                <div className="size-11 rounded-full bg-[#0F294A]/10 dark:bg-sky-400/10 flex items-center justify-center mb-2.5">
-                  <Upload className="size-5 text-[#0F294A] dark:text-sky-400" />
+                <div className="size-11 rounded-full bg-[#002D62]/10 dark:bg-sky-400/10 flex items-center justify-center mb-2.5">
+                  <Upload className="size-5 text-[#002D62] dark:text-sky-400" strokeWidth={1.75} />
                 </div>
-                <p className="text-sm font-semibold text-[#0F294A] dark:text-white">
+                <p className="text-sm font-bold text-[#002D62] dark:text-white">
                   Przeciągnij i upuść dokument lub kliknij, aby wybrać
                 </p>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
@@ -1040,8 +1006,8 @@ export default function RiskMinerDashboardPage() {
                 </p>
 
                 {uploadedFileName && (
-                  <div className="mt-3.5 inline-flex items-center gap-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs font-medium text-[#0F294A] dark:text-sky-300 shadow-2xs">
-                    <FileText className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <div className="mt-3.5 inline-flex items-center gap-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs font-medium text-[#002D62] dark:text-sky-300 shadow-2xs">
+                    <FileText className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={1.75} />
                     <span className="truncate max-w-[210px]">{uploadedFileName}</span>
                     {uploadedFileSize && (
                       <span className="text-slate-400 font-mono">({uploadedFileSize})</span>
@@ -1051,12 +1017,12 @@ export default function RiskMinerDashboardPage() {
               </div>
 
               {/* Przycisk „Załaduj przykładową inwestycję (Demo Jury MFiPR)” */}
-              <div className="rounded-xl bg-[#0F294A]/5 dark:bg-sky-950/40 border border-[#0F294A]/20 dark:border-sky-800/60 p-3.5">
+              <div className="rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 p-3.5">
                 <div className="flex items-center justify-between gap-2 mb-2">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-[#0F294A] dark:text-sky-300">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-[#002D62] dark:text-sky-300">
                     Scenariusz Referencyjny HackNation 2026
                   </span>
-                  <span className="text-[11px] font-mono bg-amber-500/20 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded font-semibold">
+                  <span className="text-[11px] font-mono bg-slate-200 dark:bg-slate-800 text-[#002D62] dark:text-sky-300 px-2 py-0.5 rounded font-bold">
                     FEnIKS • 148 mln PLN
                   </span>
                 </div>
@@ -1064,20 +1030,20 @@ export default function RiskMinerDashboardPage() {
                   type="button"
                   onClick={handleLoadDemoJuryInvestment}
                   disabled={isAnalyzing}
-                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-slate-950 font-bold text-xs sm:text-sm px-4 py-2.5 shadow-xs transition-all cursor-pointer"
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#002D62] hover:bg-[#002047] active:bg-[#001733] text-white font-bold text-xs sm:text-sm px-4 py-2.5 shadow-xs transition-all cursor-pointer"
                 >
-                  <Sparkles className="size-4 shrink-0" />
+                  <Sparkles className="size-4 shrink-0 text-amber-400" strokeWidth={1.75} />
                   <span>Załaduj przykładową inwestycję (Demo Jury MFiPR)</span>
                 </button>
               </div>
             </div>
 
-            {/* Opis tekstowy lub notatka głosowa (Web Speech API) */}
+            {/* Opis tekstowy lub notatka głosowa */}
             <div className="lg:col-span-7 flex flex-col justify-between gap-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <label
                   htmlFor="investment-description-textarea"
-                  className="text-xs sm:text-sm font-bold text-[#0F294A] dark:text-slate-100 flex items-center gap-2"
+                  className="text-xs sm:text-sm font-bold text-[#002D62] dark:text-slate-100 flex items-center gap-2"
                 >
                   <span>Opis tekstowy inwestycji / Notatka z Rady Budowy lub Komisji Przetargowej</span>
                 </label>
@@ -1086,16 +1052,16 @@ export default function RiskMinerDashboardPage() {
                   <button
                     type="button"
                     onClick={() => setShowMaskedPreview((prev) => !prev)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
                   >
                     {showMaskedPreview ? (
                       <>
-                        <EyeOff className="size-3.5 text-emerald-600" />
+                        <EyeOff className="size-3.5 text-emerald-600" strokeWidth={1.75} />
                         <span>Pokaż oryginał</span>
                       </>
                     ) : (
                       <>
-                        <Eye className="size-3.5 text-emerald-600" />
+                        <Eye className="size-3.5 text-emerald-600" strokeWidth={1.75} />
                         <span>Podgląd RODO Shield</span>
                       </>
                     )}
@@ -1106,18 +1072,18 @@ export default function RiskMinerDashboardPage() {
                     onClick={handleToggleVoiceDictation}
                     className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-semibold transition-all cursor-pointer ${
                       isRecording
-                        ? "bg-[#DC2626] text-white animate-pulse shadow-sm"
-                        : "bg-[#0F294A] text-white hover:bg-[#163B68] dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400"
+                        ? "bg-[#D52B1E] text-white animate-pulse shadow-sm"
+                        : "bg-slate-100 text-[#002D62] hover:bg-slate-200 dark:bg-slate-800 dark:text-white dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700"
                     }`}
                   >
                     {isRecording ? (
                       <>
-                        <MicOff className="size-3.5" />
+                        <MicOff className="size-3.5" strokeWidth={1.75} />
                         <span>Zatrzymaj dyktowanie (Auto-stop 3 s)</span>
                       </>
                     ) : (
                       <>
-                        <Mic className="size-3.5" />
+                        <Mic className="size-3.5 text-[#D52B1E]" strokeWidth={1.75} />
                         <span>Notatka głosowa (pl-PL)</span>
                       </>
                     )}
@@ -1139,7 +1105,7 @@ export default function RiskMinerDashboardPage() {
               )}
 
               {showMaskedPreview ? (
-                <div className="w-full min-h-[168px] max-h-[220px] overflow-y-auto rounded-xl border border-emerald-400/80 bg-emerald-950/5 dark:bg-emerald-950/30 p-3.5 text-xs font-mono leading-relaxed text-[#0F294A] dark:text-emerald-100 whitespace-pre-wrap">
+                <div className="w-full min-h-[168px] max-h-[220px] overflow-y-auto rounded-xl border border-emerald-400/80 bg-emerald-950/5 dark:bg-emerald-950/30 p-3.5 text-xs font-mono leading-relaxed text-[#002D62] dark:text-emerald-100 whitespace-pre-wrap">
                   <div className="text-[11px] font-bold uppercase text-emerald-700 dark:text-emerald-400 mb-1.5">
                     [PODGLĄD DANYCH PO MASKOWANIU LOKALNYM RODO SHIELD – GOTOWE DO WYSYŁKI DO MODELU AI]:
                   </div>
@@ -1152,7 +1118,7 @@ export default function RiskMinerDashboardPage() {
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
                   placeholder="Wklej opis inwestycji publicznej, wyciąg z protokołu rady budowy, odwołania KIO, problemów z decyzją ZRID lub użyj przycisku Notatka głosowa..."
-                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900/90 p-3.5 text-xs sm:text-sm text-[#0F294A] dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0F294A] dark:focus:ring-sky-400 font-sans leading-relaxed"
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900/90 p-3.5 text-xs sm:text-sm text-[#002D62] dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#D52B1E] font-sans leading-relaxed"
                 />
               )}
 
@@ -1169,9 +1135,9 @@ export default function RiskMinerDashboardPage() {
                     type="button"
                     onClick={() => void analyzeInvestment({ forceLiveAi: true })}
                     disabled={isAnalyzing}
-                    className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#0F294A] to-[#1E3A8A] hover:from-[#163B68] hover:to-[#2563EB] dark:from-sky-500 dark:to-blue-600 dark:hover:from-sky-400 dark:hover:to-blue-500 text-white dark:text-slate-950 font-bold text-xs sm:text-sm px-5 py-2.5 shadow-sm transition-all cursor-pointer disabled:opacity-60"
+                    className="inline-flex items-center gap-2 rounded-xl bg-[#D52B1E] hover:bg-[#B01F15] active:bg-[#921910] text-white font-bold text-xs sm:text-sm px-5 py-2.5 shadow-sm transition-all cursor-pointer disabled:opacity-60"
                   >
-                    <Sparkles className="size-4" />
+                    <Sparkles className="size-4" strokeWidth={1.75} />
                     <span>
                       {isAnalyzing
                         ? "Analizowanie przez Gemini 2.5 Flash..."
@@ -1185,19 +1151,18 @@ export default function RiskMinerDashboardPage() {
         </section>
 
         {/* =====================================================================
-            SEKCJA 2: 4 KARTY KPI NA GÓRZE DASHBOARDU (Z UWZGLĘDNIENIEM HITL)
+            SEKCJA 2: 4 KARTY KPI
            ===================================================================== */}
         <section aria-label="Kluczowe Wskaźniki Ryzyka Inwestycji (KPI)">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Karta KPI 1 */}
-            <div className="rounded-2xl bg-white dark:bg-[#0F2138] border border-slate-200 dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between">
+            <div className="rounded-2xl bg-white dark:bg-[#152238] border border-[#D1D5DB] dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                     Ogólny Indeks Ryzyka
                   </p>
                   <div className="mt-2 flex items-baseline gap-2">
-                    <span className="text-3xl font-extrabold font-mono text-[#0F294A] dark:text-white">
+                    <span className="text-3xl font-extrabold font-mono text-[#002D62] dark:text-white">
                       {simulationMetrics.dynamicRiskIndex}
                     </span>
                     <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">
@@ -1208,13 +1173,13 @@ export default function RiskMinerDashboardPage() {
                 <div
                   className={`size-10 rounded-xl flex items-center justify-center ${
                     simulationMetrics.dynamicRiskIndex >= 75
-                      ? "bg-[#DC2626]/10 text-[#DC2626]"
+                      ? "bg-[#D52B1E]/10 text-[#D52B1E]"
                       : simulationMetrics.dynamicRiskIndex >= 50
                       ? "bg-orange-500/10 text-orange-600"
                       : "bg-emerald-500/10 text-emerald-600"
                   }`}
                 >
-                  <Activity className="size-5" />
+                  <Activity className="size-5" strokeWidth={1.75} />
                 </div>
               </div>
 
@@ -1223,7 +1188,7 @@ export default function RiskMinerDashboardPage() {
                   <div
                     className={`h-full transition-all duration-300 ${
                       simulationMetrics.dynamicRiskIndex >= 75
-                        ? "bg-[#DC2626]"
+                        ? "bg-[#D52B1E]"
                         : simulationMetrics.dynamicRiskIndex >= 55
                         ? "bg-orange-500"
                         : "bg-emerald-500"
@@ -1233,22 +1198,21 @@ export default function RiskMinerDashboardPage() {
                 </div>
                 <p className="text-xs text-slate-600 dark:text-slate-400 mt-2 flex items-center justify-between">
                   <span>Aktywne ryzyka: {activeUnrejectedRisks.length}/{report.risks.length}</span>
-                  <span className="font-semibold text-[#DC2626] dark:text-red-400">
+                  <span className="font-semibold text-[#D52B1E] dark:text-red-400">
                     {simulationMetrics.dynamicRiskIndex >= 75 ? "Stan Alarmowy" : "Podwyższony"}
                   </span>
                 </p>
               </div>
             </div>
 
-            {/* Karta KPI 2 */}
-            <div className="rounded-2xl bg-white dark:bg-[#0F2138] border border-slate-200 dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between">
+            <div className="rounded-2xl bg-white dark:bg-[#152238] border border-[#D1D5DB] dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                     Ryzyka Krytyczne i Wysokie
                   </p>
                   <div className="mt-2 flex items-baseline gap-2">
-                    <span className="text-3xl font-extrabold font-mono text-[#DC2626] dark:text-red-400">
+                    <span className="text-3xl font-extrabold font-mono text-[#D52B1E] dark:text-red-400">
                       {simulationMetrics.criticalAndHighTotal}
                     </span>
                     <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">
@@ -1257,12 +1221,12 @@ export default function RiskMinerDashboardPage() {
                   </div>
                 </div>
                 <div className="size-10 rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400 flex items-center justify-center">
-                  <AlertTriangle className="size-5" />
+                  <AlertTriangle className="size-5" strokeWidth={1.75} />
                 </div>
               </div>
 
               <div className="mt-4 flex items-center gap-2 flex-wrap">
-                <span className="inline-flex items-center gap-1 rounded-md bg-[#DC2626]/10 text-[#DC2626] dark:bg-[#DC2626]/20 dark:text-red-300 px-2 py-0.5 text-xs font-bold">
+                <span className="inline-flex items-center gap-1 rounded-md bg-[#D52B1E]/10 text-[#D52B1E] dark:bg-[#D52B1E]/20 dark:text-red-300 px-2 py-0.5 text-xs font-bold">
                   {simulationMetrics.criticalCount} Krytyczne
                 </span>
                 <span className="inline-flex items-center gap-1 rounded-md bg-orange-500/15 text-orange-700 dark:text-orange-300 px-2 py-0.5 text-xs font-bold">
@@ -1274,15 +1238,14 @@ export default function RiskMinerDashboardPage() {
               </div>
             </div>
 
-            {/* Karta KPI 3 */}
-            <div className="rounded-2xl bg-white dark:bg-[#0F2138] border border-slate-200 dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between">
+            <div className="rounded-2xl bg-white dark:bg-[#152238] border border-[#D1D5DB] dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                     Opóźnienie Ścieżki Krytycznej
                   </p>
                   <div className="mt-2 flex items-baseline gap-2">
-                    <span className="text-3xl font-extrabold font-mono text-[#0F294A] dark:text-white">
+                    <span className="text-3xl font-extrabold font-mono text-[#002D62] dark:text-white">
                       +{simulationMetrics.totalDelayDays}
                     </span>
                     <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">
@@ -1291,7 +1254,7 @@ export default function RiskMinerDashboardPage() {
                   </div>
                 </div>
                 <div className="size-10 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center">
-                  <Clock className="size-5" />
+                  <Clock className="size-5" strokeWidth={1.75} />
                 </div>
               </div>
 
@@ -1303,27 +1266,26 @@ export default function RiskMinerDashboardPage() {
               </div>
             </div>
 
-            {/* Karta KPI 4 */}
-            <div className="rounded-2xl bg-white dark:bg-[#0F2138] border border-slate-200 dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between">
+            <div className="rounded-2xl bg-white dark:bg-[#152238] border border-[#D1D5DB] dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                     Zagrożony Budżet / Kwalifikowalność UE
                   </p>
                   <div className="mt-2 flex items-baseline gap-1.5">
-                    <span className="text-2xl sm:text-3xl font-extrabold font-mono text-[#DC2626] dark:text-red-400">
+                    <span className="text-2xl sm:text-3xl font-extrabold font-mono text-[#D52B1E] dark:text-red-400">
                       {formatPln(simulationMetrics.simulatedThreatenedBudgetPln)}
                     </span>
                   </div>
                 </div>
-                <div className="size-10 rounded-xl bg-[#DC2626]/10 text-[#DC2626] flex items-center justify-center shrink-0">
-                  <Banknote className="size-5" />
+                <div className="size-10 rounded-xl bg-[#D52B1E]/10 text-[#D52B1E] flex items-center justify-center shrink-0">
+                  <Banknote className="size-5" strokeWidth={1.75} />
                 </div>
               </div>
 
               <div className="mt-4 text-xs text-slate-600 dark:text-slate-400 flex items-center justify-between">
                 <span>Dofinansowanie UE: {formatPln(report.euFundingPln)}</span>
-                <span className="font-semibold text-[#0F294A] dark:text-sky-300">
+                <span className="font-semibold text-[#002D62] dark:text-sky-300">
                   {Math.round(
                     (simulationMetrics.simulatedThreatenedBudgetPln / report.euFundingPln) * 100
                   )}
@@ -1338,16 +1300,15 @@ export default function RiskMinerDashboardPage() {
             SEKCJA 3: INTERAKTYWNA MACIERZ RYZYKA 5×5 + SYMULATOR „WHAT-IF”
            ===================================================================== */}
         <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Interaktywna Macierz Ryzyka 5×5 */}
-          <div className="lg:col-span-7 rounded-2xl bg-white dark:bg-[#0F2138] border border-slate-200 dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between">
+          <div className="lg:col-span-7 rounded-2xl bg-white dark:bg-[#152238] border border-[#D1D5DB] dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between">
             <div>
-              <div className="flex flex-wrap items-center justify-between gap-2 pb-4 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-4 border-b border-[#D1D5DB] dark:border-slate-800">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center justify-center size-6 rounded-md bg-[#0F294A] text-white text-xs font-bold">
+                    <span className="inline-flex items-center justify-center size-6 rounded-md bg-[#002D62] text-white text-xs font-bold">
                       2
                     </span>
-                    <h2 className="text-base sm:text-lg font-bold text-[#0F294A] dark:text-white">
+                    <h2 className="text-base sm:text-lg font-bold text-[#002D62] dark:text-white">
                       Interaktywna Macierz Ryzyka 5×5 (Prawdopodobieństwo × Wpływ)
                     </h2>
                   </div>
@@ -1364,16 +1325,15 @@ export default function RiskMinerDashboardPage() {
                   }}
                   className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition-all cursor-pointer border ${
                     selectedMatrixCell === null && selectedCategoryFilter === "ALL"
-                      ? "bg-[#0F294A] text-white border-[#0F294A] dark:bg-sky-500 dark:text-slate-950 dark:border-sky-500"
-                      : "bg-slate-100 hover:bg-slate-200 text-[#0F294A] border-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700"
+                      ? "bg-[#002D62] text-white border-[#002D62] dark:bg-sky-500 dark:text-slate-950 dark:border-sky-500"
+                      : "bg-slate-100 hover:bg-slate-200 text-[#002D62] border-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700"
                   }`}
                 >
-                  <RotateCcw className="size-3.5" />
+                  <RotateCcw className="size-3.5" strokeWidth={1.75} />
                   <span>Pokaż wszystkie ({report.risks.length})</span>
                 </button>
               </div>
 
-              {/* Siatka 5×5 */}
               <div className="mt-4">
                 <div className="grid grid-cols-[auto_1fr] gap-3 items-center">
                   <div className="grid grid-rows-5 gap-2 text-right pr-1">
@@ -1382,7 +1342,7 @@ export default function RiskMinerDashboardPage() {
                         key={`prob-label-${prob}`}
                         className="h-16 sm:h-18 flex flex-col justify-center text-[11px] leading-tight font-semibold text-slate-600 dark:text-slate-300"
                       >
-                        <span className="font-bold text-[#0F294A] dark:text-white">P = {prob}</span>
+                        <span className="font-bold text-[#002D62] dark:text-white">P = {prob}</span>
                         <span className="hidden sm:inline text-[10px] text-slate-500 dark:text-slate-400">
                           {PROBABILITY_LABELS[prob].split("–")[1]}
                         </span>
@@ -1445,7 +1405,7 @@ export default function RiskMinerDashboardPage() {
                         key={`imp-label-${imp}`}
                         className="text-[11px] font-semibold text-slate-600 dark:text-slate-300"
                       >
-                        <span className="font-bold text-[#0F294A] dark:text-white block">W = {imp}</span>
+                        <span className="font-bold text-[#002D62] dark:text-white block">W = {imp}</span>
                         <span className="hidden sm:block text-[10px] text-slate-500 dark:text-slate-400">
                           {IMPACT_LABELS[imp].split("–")[1]}
                         </span>
@@ -1456,7 +1416,7 @@ export default function RiskMinerDashboardPage() {
               </div>
             </div>
 
-            <div className="mt-5 pt-3.5 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="mt-5 pt-3.5 border-t border-[#D1D5DB] dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
               <div className="flex flex-wrap items-center gap-3">
                 <span className="inline-flex items-center gap-1.5">
                   <span className="size-3 rounded-xs bg-emerald-500 inline-block" />
@@ -1471,15 +1431,15 @@ export default function RiskMinerDashboardPage() {
                   <span>Wysokie (10–15 pkt)</span>
                 </span>
                 <span className="inline-flex items-center gap-1.5">
-                  <span className="size-3 rounded-xs bg-[#DC2626] inline-block" />
-                  <span className="font-semibold text-[#DC2626] dark:text-red-400">
+                  <span className="size-3 rounded-xs bg-[#D52B1E] inline-block" />
+                  <span className="font-semibold text-[#D52B1E] dark:text-red-400">
                     Krytyczne (16–25 pkt)
                   </span>
                 </span>
               </div>
 
               {selectedMatrixCell && (
-                <span className="font-mono text-xs font-bold text-[#0F294A] dark:text-sky-400">
+                <span className="font-mono text-xs font-bold text-[#002D62] dark:text-sky-400">
                   Aktywny filtr: P={selectedMatrixCell.probability} × W={selectedMatrixCell.impact}
                 </span>
               )}
@@ -1487,15 +1447,15 @@ export default function RiskMinerDashboardPage() {
           </div>
 
           {/* Symulator Scenariuszy „What-If” */}
-          <div className="lg:col-span-5 rounded-2xl bg-white dark:bg-[#0F2138] border border-slate-200 dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between">
+          <div className="lg:col-span-5 rounded-2xl bg-white dark:bg-[#152238] border border-[#D1D5DB] dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between">
             <div>
-              <div className="flex items-center justify-between gap-2 pb-4 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex items-center justify-between gap-2 pb-4 border-b border-[#D1D5DB] dark:border-slate-800">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center justify-center size-6 rounded-md bg-[#0F294A] text-white text-xs font-bold">
+                    <span className="inline-flex items-center justify-center size-6 rounded-md bg-[#002D62] text-white text-xs font-bold">
                       3
                     </span>
-                    <h2 className="text-base sm:text-lg font-bold text-[#0F294A] dark:text-white">
+                    <h2 className="text-base sm:text-lg font-bold text-[#002D62] dark:text-white">
                       Symulator Scenariuszy „What-If”
                     </h2>
                   </div>
@@ -1503,7 +1463,7 @@ export default function RiskMinerDashboardPage() {
                     Symulacja wrażliwości harmonogramu i budżetu w czasie rzeczywistym.
                   </p>
                 </div>
-                <Sliders className="size-5 text-[#0F294A] dark:text-sky-400 shrink-0" />
+                <SlidersHorizontal className="size-5 text-[#002D62] dark:text-sky-400 shrink-0" strokeWidth={1.75} />
               </div>
 
               {/* Suwak 1 */}
@@ -1511,7 +1471,7 @@ export default function RiskMinerDashboardPage() {
                 <div className="flex items-center justify-between gap-2">
                   <label
                     htmlFor="slider-procedural-delay"
-                    className="text-xs sm:text-sm font-bold text-[#0F294A] dark:text-slate-100"
+                    className="text-xs sm:text-sm font-bold text-[#002D62] dark:text-slate-100"
                   >
                     1. Opóźnienie procedur / odwołań KIO / decyzji ZRID
                   </label>
@@ -1527,7 +1487,7 @@ export default function RiskMinerDashboardPage() {
                   step={5}
                   value={proceduralDelaySliderDays}
                   onChange={(e) => setProceduralDelaySliderDays(Number(e.target.value))}
-                  className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[#0F294A] dark:accent-sky-400"
+                  className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[#002D62] dark:accent-sky-400"
                 />
                 <div className="flex justify-between text-[11px] font-mono text-slate-500 dark:text-slate-400">
                   <span>0 dni (Plan bazowy)</span>
@@ -1541,11 +1501,11 @@ export default function RiskMinerDashboardPage() {
                 <div className="flex items-center justify-between gap-2">
                   <label
                     htmlFor="slider-cost-indexation"
-                    className="text-xs sm:text-sm font-bold text-[#0F294A] dark:text-slate-100"
+                    className="text-xs sm:text-sm font-bold text-[#002D62] dark:text-slate-100"
                   >
                     2. Wzrost kosztów materiałów i robót / waloryzacja
                   </label>
-                  <span className="font-mono text-sm font-extrabold text-[#DC2626] dark:text-red-300 bg-[#DC2626]/10 px-2.5 py-0.5 rounded-lg">
+                  <span className="font-mono text-sm font-extrabold text-[#D52B1E] dark:text-red-300 bg-[#D52B1E]/10 px-2.5 py-0.5 rounded-lg">
                     +{costIndexationSliderPercent}%
                   </span>
                 </div>
@@ -1557,7 +1517,7 @@ export default function RiskMinerDashboardPage() {
                   step={1}
                   value={costIndexationSliderPercent}
                   onChange={(e) => setCostIndexationSliderPercent(Number(e.target.value))}
-                  className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[#DC2626]"
+                  className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[#D52B1E]"
                 />
                 <div className="flex justify-between text-[11px] font-mono text-slate-500 dark:text-slate-400">
                   <span>0% (Kosztorys bazowy)</span>
@@ -1566,43 +1526,43 @@ export default function RiskMinerDashboardPage() {
                 </div>
               </div>
 
-              {/* Dynamiczne wyliczenia */}
+              {/* Wyliczenia */}
               <div className="mt-5 rounded-xl bg-slate-50 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-800 p-4 space-y-3">
                 <div className="flex items-center justify-between text-xs sm:text-sm">
                   <span className="text-slate-600 dark:text-slate-400">Bazowy termin zakończenia kontraktu:</span>
-                  <span className="font-mono font-semibold text-[#0F294A] dark:text-slate-200">
+                  <span className="font-mono font-semibold text-[#002D62] dark:text-slate-200">
                     {report.basePlannedEndDate}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between text-xs sm:text-sm">
-                  <span className="font-semibold text-[#0F294A] dark:text-white">Nowa prognozowana data zakończenia:</span>
-                  <span className="font-mono font-extrabold text-base text-[#0F294A] dark:text-sky-400">
+                  <span className="font-semibold text-[#002D62] dark:text-white">Nowa prognozowana data zakończenia:</span>
+                  <span className="font-mono font-extrabold text-base text-[#002D62] dark:text-sky-400">
                     {simulationMetrics.projectedEndDate}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between text-xs sm:text-sm">
-                  <span className="font-semibold text-[#0F294A] dark:text-white">Dodatkowy koszt waloryzacji i robót:</span>
-                  <span className="font-mono font-extrabold text-base text-[#DC2626] dark:text-red-400">
+                  <span className="font-semibold text-[#002D62] dark:text-white">Dodatkowy koszt waloryzacji i robót:</span>
+                  <span className="font-mono font-extrabold text-base text-[#D52B1E] dark:text-red-400">
                     +{formatPln(simulationMetrics.additionalIndexationCostPln)}
                   </span>
                 </div>
               </div>
 
-              {/* Alert kwalifikowalności UE */}
+              {/* Alert unijny */}
               <div
                 role="alert"
                 className={`mt-4 rounded-xl border p-3.5 flex items-start gap-3 transition-colors ${
                   simulationMetrics.exceedsEuDeadline
-                    ? "bg-[#DC2626]/10 border-[#DC2626] text-[#DC2626] dark:bg-[#DC2626]/20 dark:text-red-200"
+                    ? "bg-[#D52B1E]/10 border-[#D52B1E] text-[#D52B1E] dark:bg-[#D52B1E]/20 dark:text-red-200"
                     : "bg-emerald-500/10 border-emerald-500/40 text-emerald-900 dark:text-emerald-200"
                 }`}
               >
                 {simulationMetrics.exceedsEuDeadline ? (
-                  <AlertTriangle className="size-5 text-[#DC2626] dark:text-red-400 shrink-0 mt-0.5" />
+                  <AlertTriangle className="size-5 text-[#D52B1E] dark:text-red-400 shrink-0 mt-0.5" strokeWidth={1.75} />
                 ) : (
-                  <ShieldCheck className="size-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                  <ShieldCheck className="size-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" strokeWidth={1.75} />
                 )}
                 <div className="text-xs leading-relaxed">
                   <p className="font-bold uppercase tracking-wide">
@@ -1623,13 +1583,13 @@ export default function RiskMinerDashboardPage() {
               </div>
             </div>
 
-            <div className="mt-5 pt-3.5 border-t border-slate-200 dark:border-slate-800">
+            <div className="mt-5 pt-3.5 border-t border-[#D1D5DB] dark:border-slate-800">
               <button
                 type="button"
                 onClick={handleDownloadSteeringCommitteeReport}
-                className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#0F294A] hover:bg-[#173A67] dark:bg-sky-500 dark:hover:bg-sky-400 text-white dark:text-slate-950 font-bold text-xs sm:text-sm px-4 py-3 shadow-sm transition-all cursor-pointer"
+                className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#002D62] hover:bg-[#002047] active:bg-[#001733] text-white font-bold text-xs sm:text-sm px-4 py-3 shadow-sm transition-all cursor-pointer"
               >
-                <Download className="size-4 shrink-0" />
+                <Download className="size-4 shrink-0" strokeWidth={1.75} />
                 <span>Pobierz Kartę Ryzyka dla Komitetu Sterującego (.txt)</span>
               </button>
             </div>
@@ -1641,17 +1601,17 @@ export default function RiskMinerDashboardPage() {
            ===================================================================== */}
         <section
           aria-labelledby="risks-list-heading"
-          className="rounded-2xl bg-white dark:bg-[#0F2138] border border-slate-200 dark:border-slate-800 p-5 shadow-xs space-y-5"
+          className="rounded-2xl bg-white dark:bg-[#152238] border border-[#D1D5DB] dark:border-slate-800 p-5 shadow-xs space-y-5"
         >
-          <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+          <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-[#D1D5DB] dark:border-slate-800">
             <div>
               <div className="flex items-center gap-2">
-                <span className="inline-flex items-center justify-center size-6 rounded-md bg-[#0F294A] text-white text-xs font-bold">
+                <span className="inline-flex items-center justify-center size-6 rounded-md bg-[#002D62] text-white text-xs font-bold">
                   4
                 </span>
                 <h2
                   id="risks-list-heading"
-                  className="text-base sm:text-lg font-bold text-[#0F294A] dark:text-white"
+                  className="text-base sm:text-lg font-bold text-[#002D62] dark:text-white"
                 >
                   Lista Zidentyfikowanych Ryzyk i Planów Mitygacji ({filteredRisks.length})
                 </h2>
@@ -1661,16 +1621,16 @@ export default function RiskMinerDashboardPage() {
               </p>
             </div>
 
-            {/* Licznik Human-in-the-Loop zgodnie z AI Act */}
-            <div className="flex items-center gap-2.5 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-1.5 text-xs font-mono">
-              <UserCheck className="size-4 text-[#0F294A] dark:text-sky-400" />
+            {/* Licznik Human-in-the-Loop */}
+            <div className="flex items-center gap-2.5 bg-slate-100 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-1.5 text-xs font-mono">
+              <UserCheck className="size-4 text-[#002D62] dark:text-sky-400" strokeWidth={1.75} />
               <span>
                 <strong>Status AI Act (HITL):</strong>{" "}
                 <span className="text-emerald-700 dark:text-emerald-400 font-bold">
                   Zatwierdzone: {humanInTheLoopStats.approved}
                 </span>{" "}
                 •{" "}
-                <span className="text-[#DC2626] dark:text-red-400 font-bold">
+                <span className="text-[#D52B1E] dark:text-red-400 font-bold">
                   Odrzucone: {humanInTheLoopStats.rejected}
                 </span>{" "}
                 •{" "}
@@ -1681,10 +1641,9 @@ export default function RiskMinerDashboardPage() {
             </div>
           </div>
 
-          {/* Pasek szybkiego filtrowania kategorii */}
           <div className="flex flex-wrap items-center gap-1.5 pt-1">
             <span className="text-xs text-slate-500 dark:text-slate-400 mr-1 inline-flex items-center gap-1">
-              <Filter className="size-3.5" />
+              <Filter className="size-3.5" strokeWidth={1.75} />
               <span>Kategoria:</span>
             </span>
             <button
@@ -1692,7 +1651,7 @@ export default function RiskMinerDashboardPage() {
               onClick={() => setSelectedCategoryFilter("ALL")}
               className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors cursor-pointer ${
                 selectedCategoryFilter === "ALL"
-                  ? "bg-[#0F294A] text-white dark:bg-sky-500 dark:text-slate-950"
+                  ? "bg-[#002D62] text-white dark:bg-sky-500 dark:text-slate-950"
                   : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
               }`}
             >
@@ -1707,7 +1666,7 @@ export default function RiskMinerDashboardPage() {
                   onClick={() => setSelectedCategoryFilter(category)}
                   className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors cursor-pointer ${
                     selectedCategoryFilter === category
-                      ? "bg-[#0F294A] text-white dark:bg-sky-500 dark:text-slate-950"
+                      ? "bg-[#002D62] text-white dark:bg-sky-500 dark:text-slate-950"
                       : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
                   }`}
                 >
@@ -1717,10 +1676,9 @@ export default function RiskMinerDashboardPage() {
             })}
           </div>
 
-          {/* Synteza zarządcza */}
-          <div className="rounded-xl bg-[#0F294A]/5 dark:bg-slate-900/80 border border-[#0F294A]/15 dark:border-slate-800 p-4">
+          <div className="rounded-xl bg-[#002D62]/5 dark:bg-slate-900/80 border border-[#002D62]/15 dark:border-slate-800 p-4">
             <div className="flex items-center justify-between gap-2 mb-1">
-              <span className="text-xs font-bold uppercase tracking-wider text-[#0F294A] dark:text-sky-400">
+              <span className="text-xs font-bold uppercase tracking-wider text-[#002D62] dark:text-sky-400">
                 Synteza Zarządcza dla Komitetu Sterującego • {report.projectTitle}
               </span>
               <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
@@ -1734,7 +1692,7 @@ export default function RiskMinerDashboardPage() {
 
           {filteredRisks.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-300 dark:border-slate-700 p-8 text-center">
-              <p className="text-sm font-bold text-[#0F294A] dark:text-white">
+              <p className="text-sm font-bold text-[#002D62] dark:text-white">
                 Brak zidentyfikowanych ryzyk dla wybranego filtra komórki macierzy
               </p>
               <button
@@ -1743,9 +1701,9 @@ export default function RiskMinerDashboardPage() {
                   setSelectedMatrixCell(null);
                   setSelectedCategoryFilter("ALL");
                 }}
-                className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[#0F294A] text-white px-4 py-2 text-xs font-bold cursor-pointer"
+                className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[#002D62] text-white px-4 py-2 text-xs font-bold cursor-pointer"
               >
-                <RotateCcw className="size-3.5" />
+                <RotateCcw className="size-3.5" strokeWidth={1.75} />
                 <span>Pokaż wszystkie ryzyka</span>
               </button>
             </div>
@@ -1757,13 +1715,13 @@ export default function RiskMinerDashboardPage() {
 
                 return (
                   <div key={`group-${category}`} className="space-y-3">
-                    <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
+                    <div className="flex items-center justify-between border-b border-[#D1D5DB] dark:border-slate-800 pb-2">
                       <div className="flex items-center gap-2">
                         {renderCategoryIcon(category)}
-                        <h3 className="text-sm sm:text-base font-bold text-[#0F294A] dark:text-white">
+                        <h3 className="text-sm sm:text-base font-bold text-[#002D62] dark:text-white">
                           Kategoria: {category}
                         </h3>
-                        <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-xs font-mono font-bold text-[#0F294A] dark:text-sky-300">
+                        <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-xs font-mono font-bold text-[#002D62] dark:text-sky-300">
                           {categoryItems.length}
                         </span>
                       </div>
@@ -1782,14 +1740,13 @@ export default function RiskMinerDashboardPage() {
                                 ? "opacity-50 bg-slate-100 dark:bg-slate-900 border-slate-300 dark:border-slate-800 line-through"
                                 : isApproved
                                 ? "bg-emerald-50/20 dark:bg-emerald-950/20 border-emerald-500/50 shadow-xs"
-                                : "bg-[#F8FAFC] dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 hover:border-[#0F294A]/40 dark:hover:border-sky-500/40"
+                                : "bg-[#F8FAFC] dark:bg-slate-900/60 border-[#D1D5DB] dark:border-slate-800 hover:border-[#002D62]/40 dark:hover:border-sky-500/40"
                             }`}
                           >
                             <div>
-                              {/* Nagłówek karty ryzyka + Odznaka Human-in-the-Loop */}
                               <div className="flex items-start justify-between gap-2">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-[#0F294A] text-white dark:bg-slate-800 dark:text-sky-300">
+                                  <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-[#002D62] text-white dark:bg-slate-800 dark:text-sky-300">
                                     {risk.code}
                                   </span>
                                   <span
@@ -1801,12 +1758,12 @@ export default function RiskMinerDashboardPage() {
                                   </span>
                                   {isApproved && (
                                     <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 px-2 py-0.5 text-[11px] font-bold">
-                                      <Check className="size-3" /> Zweryfikowane (HITL)
+                                      <Check className="size-3" strokeWidth={2} /> Zweryfikowane (HITL)
                                     </span>
                                   )}
                                   {isRejected && (
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-red-100 text-[#DC2626] dark:bg-red-900/50 dark:text-red-300 px-2 py-0.5 text-[11px] font-bold">
-                                      <Ban className="size-3" /> Odrzucone (Wykluczone z KPI)
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-red-100 text-[#D52B1E] dark:bg-red-900/50 dark:text-red-300 px-2 py-0.5 text-[11px] font-bold">
+                                      <Ban className="size-3" strokeWidth={2} /> Odrzucone (Wykluczone z KPI)
                                     </span>
                                   )}
                                 </div>
@@ -1815,24 +1772,22 @@ export default function RiskMinerDashboardPage() {
                                 </span>
                               </div>
 
-                              <h4 className="text-sm sm:text-base font-bold text-[#0F294A] dark:text-white mt-2.5 leading-snug">
+                              <h4 className="text-sm sm:text-base font-bold text-[#002D62] dark:text-white mt-2.5 leading-snug">
                                 {risk.title}
                               </h4>
 
-                              {/* Metryki wpływu */}
                               <div className="mt-2 flex flex-wrap items-center gap-3 text-xs font-mono">
                                 <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300 font-semibold">
-                                  <Clock className="size-3.5" />
+                                  <Clock className="size-3.5" strokeWidth={1.75} />
                                   Opóźnienie: +{risk.estimatedDelayDays} dni
                                 </span>
-                                <span className="inline-flex items-center gap-1 text-[#DC2626] dark:text-red-400 font-semibold">
-                                  <Banknote className="size-3.5" />
+                                <span className="inline-flex items-center gap-1 text-[#D52B1E] dark:text-red-400 font-semibold">
+                                  <Banknote className="size-3.5" strokeWidth={1.75} />
                                   Ekspozycja: {formatPln(risk.budgetAtRiskPln)}
                                 </span>
                               </div>
 
-                              {/* Przyczyna źródłowa */}
-                              <div className="mt-3 rounded-lg bg-white dark:bg-[#0F2138] border border-slate-200/80 dark:border-slate-800 p-3">
+                              <div className="mt-3 rounded-lg bg-white dark:bg-[#152238] border border-slate-200/80 dark:border-slate-800 p-3">
                                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                                   Przyczyna źródłowa (Root Cause):
                                 </p>
@@ -1843,8 +1798,8 @@ export default function RiskMinerDashboardPage() {
 
                               {/* WIDOCZNY DOWÓD W DOKUMENCIE (STRICT GROUNDING) */}
                               <div className="mt-2.5 rounded-lg bg-sky-50/70 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 p-3">
-                                <p className="text-[11px] font-bold uppercase tracking-wider text-sky-800 dark:text-sky-300 flex items-center gap-1.5">
-                                  <BookOpen className="size-3.5" />
+                                <p className="text-[11px] font-bold uppercase tracking-wider text-[#002D62] dark:text-sky-300 flex items-center gap-1.5">
+                                  <BookOpen className="size-3.5" strokeWidth={1.75} />
                                   <span>Źródło w dokumencie (Strict Grounding):</span>
                                 </p>
                                 <p className="text-xs font-mono text-slate-800 dark:text-sky-200 mt-1 italic leading-relaxed">
@@ -1852,9 +1807,8 @@ export default function RiskMinerDashboardPage() {
                                 </p>
                               </div>
 
-                              {/* PODSTAWA FORMALNA / PZP */}
                               <div className="mt-2 flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
-                                <span className="font-bold text-[#0F294A] dark:text-sky-300">
+                                <span className="font-bold text-[#002D62] dark:text-sky-300">
                                   Podstawa formalna / PZP:
                                 </span>
                                 <span className="font-medium bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-[11px] border border-slate-200 dark:border-slate-700">
@@ -1862,10 +1816,9 @@ export default function RiskMinerDashboardPage() {
                                 </span>
                               </div>
 
-                              {/* Rekomendacja naprawcza */}
                               <div className="mt-2.5 rounded-lg bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/60 p-3">
                                 <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300 flex items-center gap-1">
-                                  <ChevronRight className="size-3.5" />
+                                  <ChevronRight className="size-3.5" strokeWidth={1.75} />
                                   <span>Rekomendacja naprawcza (Plan Mitygacji):</span>
                                 </p>
                                 <p className="text-xs text-slate-800 dark:text-slate-200 mt-1 leading-relaxed font-medium">
@@ -1874,7 +1827,7 @@ export default function RiskMinerDashboardPage() {
                               </div>
                             </div>
 
-                            {/* PANELE WERYFIKACJI HUMAN-IN-THE-LOOP (ZGODNOŚĆ Z AI ACT) */}
+                            {/* PANELE HUMAN-IN-THE-LOOP */}
                             <div className="pt-3 border-t border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
                               <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
                                 Jednostka: {risk.ownerUnit}
@@ -1890,8 +1843,8 @@ export default function RiskMinerDashboardPage() {
                                       : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800"
                                   }`}
                                 >
-                                  <Check className="size-3" />
-                                  <span>{isApproved ? "Zatwierdzono" : "✓ Zatwierdź do rejestru"}</span>
+                                  <Check className="size-3" strokeWidth={2} />
+                                  <span>{isApproved ? "Zatwierdzono" : "Zatwierdź do rejestru"}</span>
                                 </button>
 
                                 <button
@@ -1899,12 +1852,12 @@ export default function RiskMinerDashboardPage() {
                                   onClick={() => handleUpdateRiskStatus(risk.id, "rejected")}
                                   className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${
                                     isRejected
-                                      ? "bg-[#DC2626] text-white"
-                                      : "bg-red-50 text-[#DC2626] hover:bg-red-100 dark:bg-red-950 dark:text-red-300 border border-red-200 dark:border-red-800"
+                                      ? "bg-[#D52B1E] text-white"
+                                      : "bg-red-50 text-[#D52B1E] hover:bg-red-100 dark:bg-red-950 dark:text-red-300 border border-red-200 dark:border-red-800"
                                   }`}
                                 >
-                                  <Ban className="size-3" />
-                                  <span>{isRejected ? "Odrzucono" : "✕ Odrzuć (False Positive)"}</span>
+                                  <Ban className="size-3" strokeWidth={2} />
+                                  <span>{isRejected ? "Odrzucono" : "Odrzuć (False Positive)"}</span>
                                 </button>
                               </div>
                             </div>
@@ -1920,16 +1873,22 @@ export default function RiskMinerDashboardPage() {
         </section>
       </main>
 
-      {/* STOPKA INSTYTUCJONALNA */}
-      <footer className="mt-auto bg-[#0F294A] dark:bg-[#060E1A] text-slate-300 border-t border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-            <div className="space-y-1">
-              <p className="text-xs sm:text-sm font-bold text-white">
-                MFiPR × RiskMiner AI – System Wczesnego Ostrzegania o Ryzykach Inwestycji Publicznych
-              </p>
+      {/* STOPKA W STYLU GOV.PL (#1B2432) */}
+      <footer className="mt-auto bg-[#1B2432] text-slate-300 border-t border-slate-800">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 pb-6 border-b border-slate-700/60">
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <div className="flex flex-col w-5 h-4 rounded-[1px] overflow-hidden border border-slate-400 shrink-0">
+                  <div className="h-1/2 bg-white" />
+                  <div className="h-1/2 bg-[#D52B1E]" />
+                </div>
+                <p className="text-sm font-bold text-white tracking-wide">
+                  Ministerstwo Funduszy i Polityki Regionalnej
+                </p>
+              </div>
               <p className="text-xs text-slate-400">
-                Architektura i wdrożenie: WebDevAI (webdevai.eu) • Licencja MIT
+                RiskMiner AI — Proaktywny System Analizy Ryzyk Inwestycji Publicznych
               </p>
             </div>
 
@@ -1940,7 +1899,7 @@ export default function RiskMinerDashboardPage() {
               <button
                 type="button"
                 onClick={() => setActiveFooterModal("rodo")}
-                className="text-slate-200 hover:text-amber-300 underline underline-offset-4 transition-colors cursor-pointer"
+                className="text-slate-300 hover:text-white underline underline-offset-4 transition-colors cursor-pointer"
               >
                 Klauzula RODO
               </button>
@@ -1948,7 +1907,7 @@ export default function RiskMinerDashboardPage() {
               <button
                 type="button"
                 onClick={() => setActiveFooterModal("terms")}
-                className="text-slate-200 hover:text-amber-300 underline underline-offset-4 transition-colors cursor-pointer"
+                className="text-slate-300 hover:text-white underline underline-offset-4 transition-colors cursor-pointer"
               >
                 Regulamin
               </button>
@@ -1956,11 +1915,20 @@ export default function RiskMinerDashboardPage() {
               <button
                 type="button"
                 onClick={() => setActiveFooterModal("wcag")}
-                className="text-slate-200 hover:text-amber-300 underline underline-offset-4 transition-colors cursor-pointer"
+                className="text-slate-300 hover:text-white underline underline-offset-4 transition-colors cursor-pointer"
               >
-                Deklaracja WCAG 2.1
+                Deklaracja dostępności WCAG 2.1
               </button>
             </nav>
+          </div>
+
+          <div className="pt-4 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-400 gap-2">
+            <p>
+              Architektura i wdrożenie: WebDevAI (webdevai.eu) • Licencja MIT • Prototyp konkursowy HackNation 2026
+            </p>
+            <p className="font-mono text-[11px] text-slate-400">
+              MFiPR × RiskMiner AI v1.0-prod
+            </p>
           </div>
         </div>
       </footer>
@@ -1971,11 +1939,11 @@ export default function RiskMinerDashboardPage() {
           aria-modal="true"
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4"
         >
-          <div className="max-w-lg w-full rounded-2xl bg-white dark:bg-[#0F2138] border border-slate-200 dark:border-slate-700 p-6 shadow-xl space-y-4">
+          <div className="max-w-lg w-full rounded-2xl bg-white dark:bg-[#152238] border border-slate-200 dark:border-slate-700 p-6 shadow-xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
               <div className="flex items-center gap-2">
-                <Info className="size-5 text-[#0F294A] dark:text-sky-400" />
-                <h3 className="text-base font-bold text-[#0F294A] dark:text-white">
+                <Info className="size-5 text-[#002D62] dark:text-sky-400" strokeWidth={1.75} />
+                <h3 className="text-base font-bold text-[#002D62] dark:text-white">
                   {activeFooterModal === "rodo" && "Klauzula Informacyjna RODO i Architektura Privacy-by-Design"}
                   {activeFooterModal === "terms" && "Regulamin Systemu Analitycznego MFiPR × RiskMiner AI"}
                   {activeFooterModal === "wcag" && "Deklaracja Dostępności Cyfrowej (WCAG 2.1 Poziom AA)"}
@@ -1987,7 +1955,7 @@ export default function RiskMinerDashboardPage() {
                 aria-label="Zamknij okno"
                 className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
               >
-                <X className="size-5" />
+                <X className="size-5" strokeWidth={1.75} />
               </button>
             </div>
 
@@ -2028,7 +1996,7 @@ export default function RiskMinerDashboardPage() {
               <button
                 type="button"
                 onClick={() => setActiveFooterModal(null)}
-                className="rounded-xl bg-[#0F294A] text-white dark:bg-sky-500 dark:text-slate-950 px-4 py-2 text-xs font-bold cursor-pointer"
+                className="rounded-xl bg-[#002D62] text-white dark:bg-sky-500 dark:text-slate-950 px-4 py-2 text-xs font-bold cursor-pointer"
               >
                 Zamknij
               </button>
