@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
+// Konfiguracja Serverless Function pod długie odpowiedzi modeli reasoning
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+
 interface GeminiRiskResponse {
   projectTitle: string;
   estimatedBudgetPln: number;
@@ -20,7 +24,7 @@ interface GeminiRiskResponse {
   }>;
 }
 
-const SYSTEM_INSTRUCTION = `Jesteś głównym analitykiem ryzyka inwestycji publicznych i funduszy europejskich w Ministerstwie Funduszy i Polityki Regionalnej (MFiPR). Przeanalizuj dostarczoną dokumentację lub opis inwestycji. Zidentyfikuj od 4 do 8 najistotniejszych, konkretnych ryzyk projektowych (formalno-prawnych, finansowych, harmonogramowych, technicznych). Zwróć WYŁĄCZNIE poprawny obiekt JSON o strukturze:
+const SYSTEM_INSTRUCTION = `Jesteś głównym analitykiem ryzyka inwestycji publicznych i funduszy europejskich w Ministerstwie Funduszy i Polityki Regionalnej (MFiPR). Przeanalizuj dostarczoną dokumentację lub opis inwestycji. Zidentyfikuj od 4 do 8 najistotniejszych, konkretnych ryzyk projektowych (formalno-prawnych, finansowych, harmonogramowych, technicznych). Zwróć WYŁĄCZNIE poprawny, zwięzły obiekt JSON o strukturze:
 {
   "projectTitle": string,
   "estimatedBudgetPln": number,
@@ -41,7 +45,7 @@ const SYSTEM_INSTRUCTION = `Jesteś głównym analitykiem ryzyka inwestycji publ
     }
   ]
 }
-Wartości probability oraz impact muszą być liczbami całkowitymi od 1 do 5.`;
+Wartości probability oraz impact muszą być liczbami całkowitymi od 1 do 5. Nie dodawaj żadnego komentarza poza blokiem JSON.`;
 
 export async function POST(req: NextRequest) {
   try {
@@ -56,7 +60,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { description, fileBase64, fileMimeType, fileName } = body;
 
-    let userPrompt = "Przeanalizuj poniższe dane dotyczące inwestycji publicznej i wygeneruj ocenę ryzyka:\n\n";
+    let userPrompt = "Przeanalizuj zwięźle poniższe dane inwestycji publicznej i wygeneruj ocenę ryzyka w formacie JSON:\n\n";
 
     if (fileName) {
       userPrompt += `[Plik załącznika]: ${fileName}\n`;
@@ -78,7 +82,7 @@ export async function POST(req: NextRequest) {
     const isPdf = fileBase64 && fileMimeType === "application/pdf";
     let rawJsonText = "";
 
-    // Sprawdzamy czy klucz korzysta z generativelanguage v1beta (gemini-3.8-flash / gemini-2.5-flash)
+    // Używamy endpointu generativelanguage v1beta z wyłączeniem nadmiarowego reasoningu dla natychmiastowej odpowiedzi
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`;
 
     const contentsParts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
@@ -105,7 +109,11 @@ export async function POST(req: NextRequest) {
       ],
       generationConfig: {
         responseMimeType: "application/json",
-        temperature: 0.2,
+        temperature: 0.1,
+        maxOutputTokens: 2048,
+        thinkingConfig: {
+          thinkingBudget: 0,
+        },
       },
     };
 
@@ -119,34 +127,52 @@ export async function POST(req: NextRequest) {
       const resJson = await response.json();
       rawJsonText = resJson.candidates?.[0]?.content?.parts?.[0]?.text || "";
     } else {
-      // Fallback na bibliotekę GoogleGenerativeAI
-      const errText = await response.text();
-      console.warn("Direct API call returned error, trying SDK fallback:", response.status, errText);
-
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({
-        model: "gemini-3.8-flash",
+      // W razie gdy model nie obsługuje thinkingBudget: 0, ponawiamy z bazowym generationConfig
+      const fallbackPayload = {
+        contents: payload.contents,
         generationConfig: {
           responseMimeType: "application/json",
-          temperature: 0.2,
+          temperature: 0.1,
+          maxOutputTokens: 2048,
         },
-        systemInstruction: SYSTEM_INSTRUCTION,
+      };
+
+      const fallbackRes = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(fallbackPayload),
       });
 
-      const parts: Array<string | { inlineData: { mimeType: string; data: string } }> = [];
-      if (isPdf) {
-        parts.push({
-          inlineData: {
-            mimeType: "application/pdf",
-            data: fileBase64,
+      if (fallbackRes.ok) {
+        const resJson = await fallbackRes.json();
+        rawJsonText = resJson.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      } else {
+        // Fallback SDK
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({
+          model: "gemini-3.8-flash",
+          generationConfig: {
+            responseMimeType: "application/json",
+            temperature: 0.1,
           },
+          systemInstruction: SYSTEM_INSTRUCTION,
         });
-      }
-      parts.push(userPrompt);
 
-      const result = await model.generateContent(parts);
-      const res = await result.response;
-      rawJsonText = res.text();
+        const parts: Array<string | { inlineData: { mimeType: string; data: string } }> = [];
+        if (isPdf) {
+          parts.push({
+            inlineData: {
+              mimeType: "application/pdf",
+              data: fileBase64,
+            },
+          });
+        }
+        parts.push(userPrompt);
+
+        const result = await model.generateContent(parts);
+        const res = await result.response;
+        rawJsonText = res.text();
+      }
     }
 
     if (!rawJsonText) {
