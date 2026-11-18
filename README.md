@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# RiskMiner AI – System Wczesnego Ostrzegania o Ryzykach Inwestycji Publicznych
 
-## Getting Started
+Projekt przygotowany w ramach wyzwania **RISK MINER** dla **Ministerstwa Funduszy i Polityki Regionalnej (MFiPR)** podczas **HackNation 2026**.
 
-First, run the development server:
+Platforma GovTech wspiera komitety sterujące, inżynierów kontraktu oraz instytucje pośredniczące (np. CUPT) w proaktywnym wykrywaniu, kwantyfikacji i mitygacji ryzyk formalno-prawnych, finansowych, harmonogramowych i technicznych w inwestycjach współfinansowanych z programów FEnIKS oraz KPO.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+---
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 🚀 Główne Funkcje Systemu
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. **Multimodalna Analiza Dokumentacji Przetargowej i Budowlanej (Gemini 2.5 Flash):**
+   - Bezpośrednia ingestia dokumentów PDF (SWZ, Harmonogramy Rzeczowo-Finansowe, opinie środowiskowe) w formacie binarnym/multimodalnym.
+   - Parsowanie danych tabelarycznych CSV oraz opisów tekstowych i notatek z rad budowy.
+   - Wbudowana notatka głosowa przez `Web Speech API` (język polski, automatyczne zatrzymanie po ciszy).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+2. **RODO Shield (Edge Privacy-by-Design):**
+   - Lokalny filtr działający w pamięci przeglądarki przed wysłaniem danych do modelu AI.
+   - Anonimizacja numerów PESEL, NIP oraz danych osobowych kierowników kontraktów i wykonawców.
 
-## Learn More
+3. **Interaktywna Macierz Ryzyka 5×5 (Prawdopodobieństwo × Wpływ):**
+   - Wizualna siatka kategoryzacji ryzyk (Niskie, Średnie, Wysokie, Krytyczne).
+   - Dynamiczne filtrowanie listy szczegółowych kart ryzyk i planów naprawczych.
 
-To learn more about Next.js, take a look at the following resources:
+4. **Symulator Scenariuszy „What-If” (Real-time Sensitivity Analysis):**
+   - Suwaki badania wrażliwości: opóźnienia procedur odwoławczych KIO / ZRID (0–120 dni) oraz presji waloryzacyjnej i cen materiałów (0–25%).
+   - Natychmiastowe przeliczanie nowej daty zakończenia inwestycji oraz prognozy przekroczenia ostatecznego terminu kwalifikowalności wydatków unijnych.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+5. **Karta Ryzyka dla Komitetu Sterującego (.txt):**
+   - Generowanie i eksport gotowych do podpisu zestawień ryzyk i rekomendacji zarządczych.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Deploy on Vercel
+## 🛠️ Architektura i Stack Technologiczny
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **Framework:** Next.js (App Router), React 19, TypeScript (`strict: true`)
+- **Styling & UI:** Tailwind CSS, Lucide Icons, GovTech design system z pełnym Dark Mode
+- **Silnik AI:** Google Gemini 2.5 Flash (obsługa standardowych kluczy AI Studio oraz Vertex AI Express)
+- **Standard Dostępności:** Zgodność z wytycznymi WCAG 2.1 AA
+- **PWA:** Gotowość do pracy w trybie offline i instalacji jako aplikacja pulpitowa/mobilna
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+
+## 📋 Wykorzystane zasoby i boilerplate (Deklaracja wg pkt 11 FAQ HackNation)
+
+Zgodnie z regulaminem HackNation 2026 (pkt 11 FAQ), zespół deklaruje wykorzystanie:
+- Autorskiego, publicznie dostępnego szablonu startowego Next.js / PWA agencji WebDevAI (`webdevai-core-stack`),
+- Standardowych komponentów interfejsu użytkownika (shadcn/ui / Base UI primitives),
+- Oficjalnych bibliotek ekosystemu Google AI (`@google/generative-ai`),
+- Wszystkie reguły biznesowe, system prompt MFiPR, silnik analityczny macierzy 5×5, moduł RODO Shield oraz symulator scenariuszy What-If zostały zaimplementowane w trakcie trwania maratonu.
+
+---
+
+## 📄 Licencja
+
+Projekt udostępniony na licencji **MIT**. Szczegóły w pliku [LICENSE](LICENSE).  
+Autor: **Marcin Włoszek / WebDevAI (webdevai.eu)** © 2026.
