@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-// Konfiguracja Serverless Function pod długie odpowiedzi modeli reasoning
+// Konfiguracja czasu wykonania Serverless Function pod zapytania AI
 export const maxDuration = 60;
-export const dynamic = "force-dynamic";
 
 interface GeminiRiskResponse {
   projectTitle: string;
@@ -82,7 +81,7 @@ export async function POST(req: NextRequest) {
     const isPdf = fileBase64 && fileMimeType === "application/pdf";
     let rawJsonText = "";
 
-    // Używamy endpointu generativelanguage v1beta z wyłączeniem nadmiarowego reasoningu dla natychmiastowej odpowiedzi
+    // Endpoint generativelanguage v1beta z bezpośrednim modelem
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`;
 
     const contentsParts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
@@ -111,9 +110,6 @@ export async function POST(req: NextRequest) {
         responseMimeType: "application/json",
         temperature: 0.1,
         maxOutputTokens: 2048,
-        thinkingConfig: {
-          thinkingBudget: 0,
-        },
       },
     };
 
@@ -127,52 +123,31 @@ export async function POST(req: NextRequest) {
       const resJson = await response.json();
       rawJsonText = resJson.candidates?.[0]?.content?.parts?.[0]?.text || "";
     } else {
-      // W razie gdy model nie obsługuje thinkingBudget: 0, ponawiamy z bazowym generationConfig
-      const fallbackPayload = {
-        contents: payload.contents,
+      // Fallback przez SDK
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({
+        model: "gemini-3.8-flash",
         generationConfig: {
           responseMimeType: "application/json",
           temperature: 0.1,
-          maxOutputTokens: 2048,
         },
-      };
-
-      const fallbackRes = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(fallbackPayload),
+        systemInstruction: SYSTEM_INSTRUCTION,
       });
 
-      if (fallbackRes.ok) {
-        const resJson = await fallbackRes.json();
-        rawJsonText = resJson.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      } else {
-        // Fallback SDK
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({
-          model: "gemini-3.8-flash",
-          generationConfig: {
-            responseMimeType: "application/json",
-            temperature: 0.1,
+      const parts: Array<string | { inlineData: { mimeType: string; data: string } }> = [];
+      if (isPdf) {
+        parts.push({
+          inlineData: {
+            mimeType: "application/pdf",
+            data: fileBase64,
           },
-          systemInstruction: SYSTEM_INSTRUCTION,
         });
-
-        const parts: Array<string | { inlineData: { mimeType: string; data: string } }> = [];
-        if (isPdf) {
-          parts.push({
-            inlineData: {
-              mimeType: "application/pdf",
-              data: fileBase64,
-            },
-          });
-        }
-        parts.push(userPrompt);
-
-        const result = await model.generateContent(parts);
-        const res = await result.response;
-        rawJsonText = res.text();
       }
+      parts.push(userPrompt);
+
+      const result = await model.generateContent(parts);
+      const res = await result.response;
+      rawJsonText = res.text();
     }
 
     if (!rawJsonText) {
