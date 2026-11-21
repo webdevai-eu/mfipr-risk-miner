@@ -1,4 +1,12 @@
-// Definicje typów domenowych dla systemu MFiPR × RiskMiner AI
+// Definicje typów domenowych dla systemu MFiPR × RiskMiner AI (Pilotaż: Gospodarka Wodno-Ściekowa)
+
+import {
+  type WodKanSubsector,
+  type WodKanWorkType,
+  type MfiprRiskCode,
+  MFIPR_RISK_CATALOG,
+  findSimilarMfiprProjects,
+} from "@/lib/mfipr-dataset";
 
 export type RiskCategory =
   | "Formalno-prawne"
@@ -10,12 +18,17 @@ export type RiskSeverity = "Niskie" | "Średnie" | "Wysokie" | "Krytyczne";
 
 export type MatrixScore = 1 | 2 | 3 | 4 | 5;
 
-// Status weryfikacji eksperckiej Human-in-the-Loop zgodnie z AI Act
 export type VerificationStatus = "pending" | "approved" | "rejected";
+
+export type RiskConfidenceLevel =
+  | "Wysoka"
+  | "Średnia"
+  | "Wymaga uzupełnienia dokumentów";
 
 export interface InvestmentRiskItem {
   id: string;
-  code: string;
+  code: string; // Kod oficjalny MFiPR R01..R15
+  mfiprCatalogName: string; // Oficjalna nazwa kategorii z katalogu MFiPR
   title: string;
   category: RiskCategory;
   severity: RiskSeverity;
@@ -25,16 +38,44 @@ export interface InvestmentRiskItem {
   budgetAtRiskPln: number;
   rootCause: string;
   sourceCitation: string; // Dosłowny cytat z dokumentu źródłowego (Strict Grounding)
-  legalBasis: string; // Podstawa prawna / artykuł PZP / wytyczne UE
+  legalBasis: string; // Podstawa prawna / artykuł PZP / wytyczne UE / Prawo wodne
   mitigationPlan: string;
+  contractClauseSuggestion: string; // Proponowany zapis umowny do PPU / SWZ
+  confidenceLevel: RiskConfidenceLevel;
   legalBasisOrClause: string;
   ownerUnit: string;
-  verificationStatus?: VerificationStatus; // Domyślnie 'pending'
+  verificationStatus?: VerificationStatus;
+}
+
+export interface SimilarBenchmarkProject {
+  recordId: string;
+  projectName: string;
+  recipientName: string;
+  voivodeship: string;
+  subsector: WodKanSubsector;
+  workType: WodKanWorkType;
+  publicId: string;
+  similarityScore: number;
+  similarityExplanation: string;
+  observedDelayRange: string;
+  observedCostDeviationRange: string;
+}
+
+export interface MissingDocumentDiagnostic {
+  documentName: string;
+  statusType:
+    | "Brak w przekazanej paczce"
+    | "Dokument nie wspomina"
+    | "Warunki kontraktowe odtworzone z PPU/SWU";
+  impactOnAnalysis: string;
 }
 
 export interface InvestmentAnalysisReport {
   projectId: string;
   projectTitle: string;
+  subsector: WodKanSubsector;
+  additionalSubsector?: WodKanSubsector;
+  workType: WodKanWorkType;
   fundingProgram: string;
   beneficiaryName: string;
   stageDescription: string;
@@ -48,6 +89,11 @@ export interface InvestmentAnalysisReport {
   executiveSummary: string;
   sourceInputSample: string;
   risks: InvestmentRiskItem[];
+  similarProjects: SimilarBenchmarkProject[];
+  benchmarkSampleSize: number;
+  predictedDelayRange: string;
+  predictedCostOverrunRange: string;
+  missingDocuments: MissingDocumentDiagnostic[];
   generatedAt: string;
   modelEngine: string;
 }
@@ -62,6 +108,12 @@ export function calculateMatrixSeverity(
   if (score >= 10) return "Wysokie";
   if (score >= 5) return "Średnie";
   return "Niskie";
+}
+
+// Pomocnicze pobranie nazwy katalogowej R01–R15
+export function getMfiprCatalogName(code: string): string {
+  const found = MFIPR_RISK_CATALOG.find((item) => item.code === code);
+  return found ? `${found.code} – ${found.name}` : `${code} – Ryzyko specyficzne inwestycji`;
 }
 
 // Lokalny filtr RODO Shield – maskuje numery PESEL, NIP oraz dane osobowe i nazwy wykonawców w tekście
@@ -112,211 +164,246 @@ export function applyRodoShieldMasking(rawText: string, enabled: boolean): {
   return { processedText: result, maskedCount };
 }
 
-// Przykładowy wsad tekstowy dla przycisku „Załaduj przykładową inwestycję (Demo Jury MFiPR)”
-export const DEMO_JURY_INPUT_TEXT = `INWESTYCJA PUBLICZNA: Budowa obwodnicy północnej w ciągu DK-22 – dofinansowanie FEnIKS 148 mln PLN, etap po otwarciu ofert przetargowych.
-NR PROJEKTU: FENX.04.01-IP.01-0042/25 | Całkowity budżet projektu: 214 500 000 PLN | Dofinansowanie UE (FEnIKS): 148 000 000 PLN.
-PLANOWANY TERMIN ZAKOŃCZENIA ROBÓT: 2029-06-15 | KRYTYCZNY TERMIN KWALIFIKOWALNOŚCI FEnIKS: 2029-12-31.
+// Przykładowy wsad tekstowy inwestycji wodociągowo-kanalizacyjnej (Pilotaż MFiPR Wod-Kan)
+export const DEMO_JURY_INPUT_TEXT = `INWESTYCJA WODNO-KANALIZACYJNA (KPO B3.1.1 / FEnIKS): Rozbudowa sieci wodociągowej (14,2 km) wraz z modernizacją Stacji Uzdatniania Wody (SUW) oraz budową odcinka kanalizacji sanitarnej tłocznej (4,6 km) na terenach wiejskich poza aglomeracją.
+NR PROJEKTU: KPOD.03.15-IW.14-0089/26 | Ogłoszenie powiązane: 2026/BZP 00148920/01 (Część 1 i Część 2).
+BUDŻET CAŁKOWITY BRUTTO: 12 450 000 PLN | DOFINANSOWANIE UE (KPO B3.1.1): 9 850 000 PLN.
+PLANOWANY TERMIN ODBIORU KOŃCOWEGO: 2026-10-15 | KRYTYCZNY TERMIN ROZLICZENIA KPO / KWALIFIKOWALNOŚCI: 2026-12-31.
 
-NOTATKA Z KOMISJI PRZETARGOWEJ I RADY TECHNICZNEJ (Stan na listopad 2026):
-1. W postępowaniu w trybie "Projektuj i Buduj" wpłynęło 6 ofert. Najniższą ofertę złożyło Konsorcjum BudTrak Polska S.A. (NIP 526-104-88-19, kierownik kontraktu mgr inż. Marek Kowalczyk, PESEL 78041209415) na kwotę 169,2 mln PLN (o 21,1% poniżej kosztorysu inwestorskiego). Drugi oferent – Strabag Infrastruktura Sp. z o.o. – zapowiedział odwołanie do Krajowej Izby Odwoławczej (KIO) zarzucając rażąco niską cenę w pozycjach robót mostowych (obiekt MS-03 nad rzeką Gwdą).
-2. Wydanie decyzji ZRID przez Wojewodę jest zagrożone opóźnieniem ok. 65 dni z uwagi na konieczność uzupełnienia raportu ponownej oceny oddziaływania na środowisko (OOŚ) dla przejść dla dużych ssaków na km 7+400 – RDOŚ wezwał do korekty dokumentacji hydrologicznej.
-3. W dokumentacji archiwalnej geotechnicznej wykryto rozbieżności dot. gruntów słabonośnych (torfy i namuły o miąższości do 8,5 m na odcinku km 4+100 – 5+850). Brak pełnego rozpoznania grozi roszczeniami wykonawcy z tytułu odmiennych warunków fizycznych (Subklauzula 4.12 FIDIC) na kwotę ok. 18,4 mln PLN.
-4. Na km 11+200 występuje niezinwentaryzowana kolizja z magistralą gazową wysokiego ciśnienia DN500 – operator GAZ-SYSTEM wymaga przebudowy poza okresem grzewczym, co zawęża okno wykonawcze do II-III kwartału.
-5. Limit waloryzacji w projekcie umowy określono na 10% (wskaźnik GUS), jednak przy obecnym wzroście cen asfaltów modyfikowanych, stali zbrojeniowej i betonu mostowego B50 istnieje ryzyko luki finansowej po stronie Zamawiającego rzędu 14,2 mln PLN (wydatki niekwalifikowalne).`;
+WYCIĄG Z DOKUMENTACJI POSTĘPOWANIA (SWZ, PFU, PPU, PYTANIA WYKONAWCÓW I NOTATKA INŻYNIERA):
+1. [R03 / Nieruchomości] Trasa projektowanej sieci wodociągowej PE160 na odcinku 3,8 km (obręb Dąbrówka i Siemonia, działki nr 528/4, 530, 531/1–537/1) przebiega przez tereny zielone oraz drogi wewnętrzne stanowiące własność prywatną (19 właścicieli). Na dzień publikacji SWZ Zamawiający nie załączył kompletu oświadczeń o prawie do dysponowania nieruchomością na cele budowlane ani ustanowionych służebności przesyłu.
+2. [R01 / R08 / Zakres i Wynagrodzenie] W SWZ i PPU przyjęto wynagrodzenie ryczałtowe w formule "Zaprojektuj i Wybuduj", jednak w odpowiedzi na pytanie nr 24 Zamawiający wskazał, że „wykonanie sięgaczy i przyłączy wodociągowych do granic 112 posesji prywatnych należy ująć w cenie oferty, o ile właściciele wyrażą zgodę w trakcie robót”, podczas gdy przedmiar pomocniczy obejmuje wyłącznie przewód główny bez przykanalików i studni wodomierzowych.
+3. [R02 / R04 / Geotechnika i Przewierty HDD] Na km 6+250 trasa rurociągu tłocznego przecina drogę wojewódzką nr 444 oraz ciek wodny. Dokumentacja geotechniczna z 2021 r. obejmuje tylko 3 odwierty co 800 m i nie rozpoznaje soczewek kurzawki oraz gruntów organicznych w strefie komory przewiertu sterowanego HDD. Brak uzgodnienia docelowego z WZDW oraz pozwolenia wodnoprawnego Wód Polskich.
+4. [R11 / RNC] W postępowaniu najniższą ofertę złożyło Konsorcjum HydroInstal Polska Sp. z o.o. (NIP 526-104-88-19, kierownik robót sanitarnych mgr inż. Marek Kowalczyk, PESEL 78041209415) na kwotę 9,42 mln PLN brutto (o 24,3% poniżej budżetu zamawiającego). Drugi oferent – AquaTech Inżynieria S.A. – złożył wniosek o odwołanie do KIO ws. rażąco niskiej ceny zestawów hydroforowych i filtrów odżelaziających na SUW.
+5. [R10 / R15 / SUW i Eksploatacja] PFU dla modernizacji Stacji Uzdatniania Wody określa wydajność nominalną pomp na 140 m3/h, ale nie zawiera aktualnych badań wody surowej (ponadnormatywny mangan i amoniak) ani procedury 72-godzinnego rozruchu technologicznego, płukania i dezynfekcji sieci przed przełączeniem odbiorców. Ponadto na końcowym odcinku sieci (2,9 km, zabudowa letniskowa) prognozowany początkowy pobór wody wynosi poniżej 15% założonego wolumenu (ryzyko stagnacji wody i wtórnego zanieczyszczenia bakteriologicznego).`;
 
-// Kompletny raport analityczny dla przypadku Demo Jury MFiPR ze ścisłym ugruntowaniem (Strict Grounding)
+// Kompletny raport referencyjny dla inwestycji wodociągowo-kanalizacyjnej (Pilotaż MFiPR Wod-Kan)
 export const DEMO_JURY_REPORT: InvestmentAnalysisReport = {
-  projectId: "FENX.04.01-IP.01-0042/25",
+  projectId: "KPOD.03.15-IW.14-0089/26",
   projectTitle:
-    "Budowa obwodnicy północnej w ciągu DK-22 – dofinansowanie FEnIKS 148 mln PLN, etap po otwarciu ofert przetargowych",
-  fundingProgram: "Program Fundusze Europejskie na Infrastrukturę, Klimat, Środowisko 2021–2027 (FEnIKS)",
-  beneficiaryName: "Generalna Dyrekcja Dróg Krajowych i Autostrad – Oddział Regionalny / MFiPR Monitoring",
-  stageDescription: "Etap po otwarciu ofert przetargowych (weryfikacja RNC, przed wydaniem ZRID)",
-  totalBudgetPln: 214_500_000,
-  euFundingPln: 148_000_000,
-  basePlannedEndDate: "2029-06-15",
-  euSettlementDeadline: "2029-12-31",
-  overallRiskScore: 78,
-  criticalPathDelayDays: 115,
-  threatenedBudgetPln: 42_850_000,
+    "Rozbudowa sieci wodociągowej (14,2 km) i modernizacja SUW wraz z kanalizacją tłoczną poza aglomeracją",
+  subsector: "Sieć wodociągowa",
+  additionalSubsector: "Uzdatnianie i zaopatrzenie w wodę",
+  workType: "Budowa/rozbudowa",
+  fundingProgram: "Krajowy Plan Odbudowy – Inwestycja B3.1.1 / FEnIKS Gospodarka Wodno-Ściekowa",
+  beneficiaryName: "Gmina Wiejska / Jednostka Samorządu Terytorialnego (Monitoring MFiPR)",
+  stageDescription: "Faza postępowania zakupowego i weryfikacji PPU/PFU przed zawarciem umowy",
+  totalBudgetPln: 12_450_000,
+  euFundingPln: 9_850_000,
+  basePlannedEndDate: "2026-10-15",
+  euSettlementDeadline: "2026-12-31",
+  overallRiskScore: 81,
+  criticalPathDelayDays: 65,
+  threatenedBudgetPln: 3_420_000,
   executiveSummary:
-    "Analiza wielokryterialna RiskMiner AI wykazała WYSOKI zagregowany indeks ryzyka (78/100 pkt). Głównym zagrożeniem dla ścieżki krytycznej jest kumulacja sporu odwoławczego przed KIO (badanie rażąco niskiej ceny oferty Konsorcjum BudTrak Polska S.A.) oraz wezwania RDOŚ w procedurze ponownej oceny OOŚ warunkującej decyzję ZRID. Przekroczenie łącznego opóźnienia o ponad 199 dni spowoduje naruszenie nieprzekraczalnego terminu kwalifikowalności wydatków FEnIKS (31.12.2029) i ryzyko utraty dofinansowania UE.",
+    "Analiza RiskMiner AI w oparciu o katalog MFiPR (R01–R15) oraz benchmark 22 projektów wod-kan wykazała WYSOKI indeks ryzyka (81/100 pkt). Główne zagrożenia wynikają z nieuregulowanego prawa do dysponowania 19 działkami prywatnymi na trasie wodociągu (R03), rozbieżności między ryczałtowym PFU a przedmiarem w zakresie 112 przyłączy (R01/R08), braku pozwolenia wodnoprawnego i badań pod przewiert HDD pod DW 444 (R02/R04) oraz ryzyka niedotrzymania parametrów fizykochemicznych wody na SUW (R10/R15). Przekroczenie opóźnienia o ponad 77 dni naruszy horyzont kwalifikowalności KPO B3.1.1.",
   sourceInputSample: DEMO_JURY_INPUT_TEXT,
-  generatedAt: "2026-11-18T11:02:00+01:00",
-  modelEngine: "Gemini 2.5 Flash / PLLuM-GovTech Analytic Core",
+  generatedAt: "2026-11-21T11:55:00+01:00",
+  modelEngine: "Gemini 2.5 Flash / MFiPR Wod-Kan Analytic Engine",
+  similarProjects: findSimilarMfiprProjects("Sieć wodociągowa", "Budowa/rozbudowa", 4),
+  benchmarkSampleSize: 22,
+  predictedDelayRange: "+40 do +95 dni kalendarzowych",
+  predictedCostOverrunRange: "+7,5% do +16,8% wartości kontraktu (art. 455 ust. 1 pkt 3–4 Pzp)",
+  missingDocuments: [
+    {
+      documentName: "Podpisana umowa z wykonawcą",
+      statusType: "Warunki kontraktowe odtworzone z PPU/SWU",
+      impactOnAnalysis:
+        "Zgodnie z wytycznymi MFiPR użyto PPU wraz z modyfikacjami SWZ i informacją z otwarcia ofert jako warunkowego substytutu umowy („warunki kontraktowe odtworzone; brak podpisanego egzemplarza umowy”).",
+    },
+    {
+      documentName: "Oświadczenia o prawie do dysponowania nieruchomością na cele budowlane (19 działek prywatnych)",
+      statusType: "Brak w przekazanej paczce",
+      impactOnAnalysis:
+        "Brak pliku w paczce nie potwierdza jeszcze braku zgód w urzędzie gminy, jednak brak wykazu służebności w załącznikach do PFU podnosi ryzyko R03 do poziomu Krytycznego.",
+    },
+    {
+      documentName: "Aktualne badania fizykochemiczne wody surowej na ujęciu SUW oraz pozwolenie wodnoprawne",
+      statusType: "Dokument nie wspomina",
+      impactOnAnalysis:
+        "Ogranicza pewność doboru złoża filtracyjnego na SUW (ryzyko R09 i R15) – wymagane pilne uzupełnienie przed zatwierdzeniem projektu wykonawczego.",
+    },
+  ],
   risks: [
     {
-      id: "risk-1",
-      code: "LEG-01",
-      title: "Odwołanie do KIO ws. rażąco niskiej ceny (RNC) na obiekcie mostowym MS-03",
+      id: "risk-wk-1",
+      code: "R03",
+      mfiprCatalogName: getMfiprCatalogName("R03"),
+      title: "Przebieg 3,8 km sieci wodociągowej przez 19 prywatnych działek bez udokumentowanych zgód właścicieli",
       category: "Formalno-prawne",
       severity: "Krytyczne",
       probability: 5,
       impact: 4,
-      estimatedDelayDays: 45,
-      budgetAtRiskPln: 8_200_000,
+      estimatedDelayDays: 60,
+      budgetAtRiskPln: 980_000,
       rootCause:
-        "Oferta z najniższą ceną jest o 21,1% niższa od kosztorysu inwestorskiego i o 16,4% niższa od średniej arytmetycznej pozostałych ofert. Niedoszacowanie kosztów stali zbrojeniowej i deskowań obiektu MS-03 nad rzeką Gwdą rodzi wysokie prawdopodobieństwo wieloinstancyjnego sporu w KIO oraz Sądu Zamówień Publicznych.",
+        "Korytarz sieci PE160 zaprojektowano w terenach zielonych i drogach wewnętrznych stanowiących własność prywatną (dz. 528/4, 530, 531/1–537/1) bez uprzedniego pozyskania zgód i służebności przesyłu przed ogłoszeniem przetargu.",
       sourceCitation:
-        "„Najniższą ofertę złożyło Konsorcjum [...] na kwotę 169,2 mln PLN (o 21,1% poniżej kosztorysu). Drugi oferent zapowiedział odwołanie do KIO zarzucając rażąco niską cenę w pozycjach robót mostowych (obiekt MS-03 nad rzeką Gwdą).”",
-      legalBasis: "Art. 224 ust. 1–2 oraz Art. 513 ustawy Prawo zamówień publicznych (Pzp)",
+        "„Trasa projektowanej sieci wodociągowej PE160 na odcinku 3,8 km [...] przebiega przez tereny zielone oraz drogi wewnętrzne stanowiące własność prywatną (19 właścicieli). Na dzień publikacji SWZ Zamawiający nie załączył kompletu oświadczeń...”",
+      legalBasis: "Art. 32 ust. 4 pkt 2 Prawa budowlanego / Art. 305(1) Kodeksu cywilnego (Służebność przesyłu)",
       mitigationPlan:
-        "Wdrożyć pogłębioną procedurę wezwania z art. 224 ust. 1 i 2 Pzp z żądaniem szczegółowych kalkulacji podwykonawczych i ofert hutniczych w terminie 7 dni. Przygotować kompletną matrycę dowodową dla Prokuratorii Generalnej RP przed rozprawą KIO.",
-      legalBasisOrClause: "Art. 224 ust. 1–2 oraz Art. 513 ustawy Prawo zamówień publicznych (Pzp)",
-      ownerUnit: "Wydział Zamówień Publicznych i Obsługi Prawnej",
+        "Weryfikacja stanu zgód przez komórkę nieruchomości Gminy przed podpisaniem umowy oraz przygotowanie wariantowej trasy obejściowej w pasie drogi gminnej dla działek spornych (zgodnie z Rozdz. 5.3 Poradnika MFiPR).",
+      contractClauseSuggestion:
+        "Propozycja do PPU §14 ust. 2: „Zamawiający dopuszcza zmianę terminu realizacji Etapu II lub korektę trasy przewodu na podstawie art. 455 ust. 1 pkt 1 Pzp w przypadku cofnięcia zgody właściciela nieruchomości prywatnej, przy czym ryzyko pozyskania tytułu prawnego dla działek wskazanych w wariancie bazowym PFU obciąża Zamawiającego.”",
+      confidenceLevel: "Wysoka",
+      legalBasisOrClause: "Art. 32 ust. 4 pkt 2 Prawa budowlanego / Art. 455 ust. 1 pkt 1 Pzp",
+      ownerUnit: "Referat Gospodarki Nieruchomościami i Inwestycji JST",
       verificationStatus: "pending",
     },
     {
-      id: "risk-2",
-      code: "LEG-02",
-      title: "Wstrzymanie decyzji ZRID przez uzupełnienie raportu OOŚ (przejścia ekologiczne km 7+400)",
-      category: "Formalno-prawne",
+      id: "risk-wk-2",
+      code: "R01",
+      mfiprCatalogName: getMfiprCatalogName("R01"),
+      title: "Rozbieżność zakresu między PFU, odpowiedziami SWZ a przedmiarem dot. 112 sięgaczy i przyłączy",
+      category: "Finansowe",
       severity: "Krytyczne",
       probability: 4,
       impact: 5,
-      estimatedDelayDays: 65,
-      budgetAtRiskPln: 11_400_000,
+      estimatedDelayDays: 35,
+      budgetAtRiskPln: 1_150_000,
       rootCause:
-        "Regionalny Dyrektor Ochrony Środowiska (RDOŚ) zakwestionował parametry hydrauliczne i światła przejścia zespolonego dla dużych ssaków na km 7+400. Brak uzgodnienia środowiskowego blokuje wydanie decyzji ZRID z rygorem natychmiastowej wykonalności przez Wojewodę.",
+        "Sprzeczność pomiędzy odpowiedzią na pytanie nr 24 (nakazującą ujęcie 112 przyłączy w ryczałcie warunkowo od zgody mieszkańców) a przedmiarem i OPZ obejmującym tylko rurociąg rozdzielczy.",
       sourceCitation:
-        "„Wydanie decyzji ZRID przez Wojewodę jest zagrożone opóźnieniem ok. 65 dni z uwagi na konieczność uzupełnienia raportu ponownej oceny oddziaływania na środowisko (OOŚ) dla przejść dla dużych ssaków na km 7+400 – RDOŚ wezwał do korekty dokumentacji hydrologicznej.”",
-      legalBasis: "Art. 11a specustawy drogowej (ZRID) w zw. z art. 88 ustawy OOŚ",
+        "„W odpowiedzi na pytanie nr 24 Zamawiający wskazał, że wykonanie sięgaczy i przyłączy wodociągowych do granic 112 posesji prywatnych należy ująć w cenie oferty [...] podczas gdy przedmiar pomocniczy obejmuje wyłącznie przewód główny.”",
+      legalBasis: "Art. 99 ust. 1 oraz Art. 455 ust. 1 pkt 3 ustawy Prawo zamówień publicznych (Pzp)",
       mitigationPlan:
-        "Powołać zespół zadaniowy z nadzorem przyrodniczym i hydrologiem w celu złożenia skorygowanego aneksu OOŚ w ciągu 14 dni roboczych. Wystąpić o częściowy odbiór dokumentacji dla odcinka km 0+000 – 6+500.",
-      legalBasisOrClause: "Art. 11a specustawy drogowej (ZRID) w zw. z art. 88 ustawy OOŚ",
-      ownerUnit: "Zespół Ochrony Środowiska i Przygotowania Inwestycji",
+        "Ujednoznacznienie hierarchii dokumentów w PPU oraz wydzielenie sięgaczy do granic działek jako zakresu rozliczanego obmiarowo lub objętego prawem opcji (art. 441 Pzp).",
+      contractClauseSuggestion:
+        "Propozycja do PPU §3 ust. 5: „Zakres podstawowy wynagrodzenia ryczałtowego obejmuje przewód główny wraz z armaturą węzłową i 85 udokumentowanymi sięgaczami do granic działek; wykonanie pozostałych do 27 sięgaczy objęte jest prawem opcji z art. 441 Pzp rozliczanym wg stawek jednostkowych z kosztorysu ofertowego.”",
+      confidenceLevel: "Wysoka",
+      legalBasisOrClause: "Art. 99 ust. 1 Pzp (Jednoznaczny OPZ) / Art. 441 Pzp",
+      ownerUnit: "Komisja Przetargowa / Zespół Przygotowania OPZ",
       verificationStatus: "pending",
     },
     {
-      id: "risk-3",
-      code: "FIN-01",
-      title: "Roszczenia Subklauzuli 4.12 FIDIC z tytułu gruntów słabonośnych (km 4+100 – 5+850)",
-      category: "Finansowe",
-      severity: "Krytyczne",
+      id: "risk-wk-3",
+      code: "R02",
+      mfiprCatalogName: getMfiprCatalogName("R02"),
+      title: "Niedostateczne rozpoznanie geotechniczne (kurzawka) w strefie przewiertu HDD pod DW 444 i ciekiem",
+      category: "Techniczne",
+      severity: "Wysokie",
       probability: 4,
       impact: 4,
-      estimatedDelayDays: 35,
-      budgetAtRiskPln: 18_400_000,
+      estimatedDelayDays: 45,
+      budgetAtRiskPln: 640_000,
       rootCause:
-        "Program Funkcjonalno-Użytkowy (PFU) oparto na archiwalnych odwiertach w siatce co 250 m, które nie wykazały soczewek torfów o miąższości 8,5 m. Wykonawca może skutecznie podnieść zarzut nieprzewidywalnych warunków fizycznych i żądać dopłaty za kolumny DSM/jet-grouting.",
+        "Archiwalna dokumentacja geotechniczna z 2021 r. (odwierty co 800 m) nie rozpoznaje warunków gruntowo-wodnych w komorach startowej i odbiorczej przewiertu sterowanego HDD na km 6+250.",
       sourceCitation:
-        "„W dokumentacji archiwalnej geotechnicznej wykryto rozbieżności dot. gruntów słabonośnych (torfy i namuły o miąższości do 8,5 m na odcinku km 4+100 – 5+850). Brak pełnego rozpoznania grozi roszczeniami wykonawcy z tytułu odmiennych warunków fizycznych (Subklauzula 4.12 FIDIC) na kwotę ok. 18,4 mln PLN.”",
-      legalBasis: "Subklauzula 4.12 FIDIC (Odmienne warunki fizyczne) / Art. 357(1) Kodeksu cywilnego",
+        "„Dokumentacja geotechniczna z 2021 r. obejmuje tylko 3 odwierty co 800 m i nie rozpoznaje soczewek kurzawki oraz gruntów organicznych w strefie komory przewiertu sterowanego HDD.”",
+      legalBasis: "Art. 455 ust. 1 pkt 4 Pzp / Rozporządzenie ws. ustalania geotechnicznych warunków posadawiania",
       mitigationPlan:
-        "Przeprowadzić niezwłoczne badania geofizyczne ERT przed przekazaniem placu budowy, uściślić ryczałtowy charakter ryzyka geotechnicznego w odpowiedziach na pytania SWZ oraz zabezpieczyć rezerwę celową w budżecie niekwalifikowanym.",
-      legalBasisOrClause: "Subklauzula 4.12 Warunków Kontraktowych FIDIC (Odmienne warunki fizyczne)",
-      ownerUnit: "Inżynier Kontraktu / Wydział Rozliczeń Inwestycji",
+        "Wykonanie uzupełniających wierceń badawczych w osi przewiertu HDD pod DW 444 oraz zdefiniowanie w PPU progu nieprzewidywalnych warunków gruntowych.",
+      contractClauseSuggestion:
+        "Propozycja do PPU §15 ust. 4: „W przypadku napotkania w strefie przewiertów HDD gruntów nienośnych lub kurzawki niewykazanych w dokumentacji archiwalnej, Strony dopuszczają zmianę technologii posadowienia komór i korektę wynagrodzenia na podstawie protokołu konieczności zgodnie z art. 455 ust. 1 pkt 4 Pzp.”",
+      confidenceLevel: "Wysoka",
+      legalBasisOrClause: "Art. 455 ust. 1 pkt 4 Pzp",
+      ownerUnit: "Inżynier Kontraktu / Nadzór Geotechniczny",
       verificationStatus: "pending",
     },
     {
-      id: "risk-4",
-      code: "FIN-02",
-      title: "Ryzyko korekty finansowej UE (5%–10%) przy nieprecyzyjnych kryteriach waloryzacji",
-      category: "Finansowe",
-      severity: "Wysokie",
-      probability: 3,
-      impact: 4,
-      estimatedDelayDays: 0,
-      budgetAtRiskPln: 14_200_000,
-      rootCause:
-        "Przekroczenie progu waloryzacyjnego 10% przy galopujących cenach asfaltów modyfikowanych i betonu mostowego B50 może wymusić zawarcie aneksu zwiększającego wynagrodzenie na podstawie art. 455 ust. 1 pkt 4 Pzp, co CUPT/MFiPR bada pod kątem kwalifikowalności wydatków FEnIKS.",
-      sourceCitation:
-        "„Limit waloryzacji w projekcie umowy określono na 10% (wskaźnik GUS), jednak przy obecnym wzroście cen [...] istnieje ryzyko luki finansowej po stronie Zamawiającego rzędu 14,2 mln PLN (wydatki niekwalifikowalne).”",
-      legalBasis: "Art. 439 oraz Art. 455 ust. 1 pkt 4 Pzp / Wytyczne kwalifikowalności FEnIKS 2021–2027",
-      mitigationPlan:
-        "Zastosować transparentny koszyk waloryzacyjny oparty na wskaźnikach SEKOCENBUD i GUS z symetrycznym podziałem ryzyka (50/50) oraz uzyskać wyprzedzającą opinię Instytucji Pośredniczącej (CUPT) przed podpisaniem aneksu.",
-      legalBasisOrClause: "Art. 439 oraz Art. 455 ust. 1 pkt 4 Pzp | Wytyczne kwalifikowalności FEnIKS",
-      ownerUnit: "Komórka ds. Rozliczania Funduszy UE (FEnIKS)",
-      verificationStatus: "pending",
-    },
-    {
-      id: "risk-5",
-      code: "SCH-01",
-      title: "Blokada okna wykonawczego przez przebudowę gazociągu wysokiego ciśnienia DN500 (km 11+200)",
-      category: "Harmonogramowe",
+      id: "risk-wk-4",
+      code: "R04",
+      mfiprCatalogName: getMfiprCatalogName("R04"),
+      title: "Brak pozwolenia wodnoprawnego Wód Polskich oraz uzgodnienia przejścia pod drogą wojewódzką WZDW",
+      category: "Formalno-prawne",
       severity: "Wysokie",
       probability: 4,
       impact: 3,
       estimatedDelayDays: 50,
-      budgetAtRiskPln: 3_150_000,
+      budgetAtRiskPln: 210_000,
       rootCause:
-        "Operator GAZ-SYSTEM zezwala na wyłączenie i przełączenie czynnej magistrali DN500 wyłącznie poza sezonem grzewczym (15 maja – 15 września). Opóźnienie podpisania umowy przesunie roboty kolizyjne o pełny rok kalendarzowy.",
+        "Uzależnienie rozpoczęcia robót na odcinku przekroczenia cieku wodnego i DW 444 od decyzji organów zewnętrznych (PGW Wody Polskie oraz Zarząd Dróg Wojewódzkich).",
       sourceCitation:
-        "„Na km 11+200 występuje niezinwentaryzowana kolizja z magistralą gazową wysokiego ciśnienia DN500 – operator GAZ-SYSTEM wymaga przebudowy poza okresem grzewczym, co zawęża okno wykonawcze do II-III kwartału.”",
-      legalBasis: "Ustawa Prawo energetyczne / Warunki techniczne usunięcia kolizji GAZ-SYSTEM",
+        "„Na km 6+250 trasa rurociągu tłocznego przecina drogę wojewódzką nr 444 oraz ciek wodny [...] Brak uzgodnienia docelowego z WZDW oraz pozwolenia wodnoprawnego Wód Polskich.”",
+      legalBasis: "Art. 389 ustawy Prawo wodne / Art. 39 ust. 3 ustawy o drogach publicznych",
       mitigationPlan:
-        "Wydzielić dokumentację zamienną przebudowy kolizji gazowej DN500 jako Kamień Milowy nr 1 z priorytetowym uzgodnieniem warunków technicznych z GAZ-SYSTEM w pierwszych 30 dniach od podpisania umowy.",
-      legalBasisOrClause: "Warunki techniczne usunięcia kolizji sieci przesyłowej GAZ-SYSTEM",
-      ownerUnit: "Zespół Koordynacji Uzbrojenia Terenu (ZUD)",
+        "Wystąpienie przez Inwestora o warunki techniczne WZDW jeszcze przed rozstrzygnięciem przetargu oraz wydzielenie odcinka przekroczenia cieku do odrębnego kamienia milowego.",
+      contractClauseSuggestion:
+        "Propozycja do PPU §6 ust. 3: „Opóźnienie organu administracji (PGW Wody Polskie lub Zarządcy Drogi) przekraczające ustawowe terminy Kpa, niezawinione przez Wykonawcę, stanowi podstawę do odpowiedniego przesunięcia Kamienia Milowego nr 2 bez naliczania kar umownych.”",
+      confidenceLevel: "Wysoka",
+      legalBasisOrClause: "Art. 389 ustawy Prawo wodne",
+      ownerUnit: "Pełnomocnik ds. Uzgodnień i Decyzji Administracyjnych",
       verificationStatus: "pending",
     },
     {
-      id: "risk-6",
-      code: "SCH-02",
-      title: "Kumulacja przerw zimowych (15.12–15.03) z opóźnieniem przekazania placu budowy",
+      id: "risk-wk-5",
+      code: "R11",
+      mfiprCatalogName: getMfiprCatalogName("R11"),
+      title: "Odwołanie do KIO ws. rażąco niskiej ceny (-24,3%) w zakresie technologii SUW",
+      category: "Formalno-prawne",
+      severity: "Wysokie",
+      probability: 3,
+      impact: 4,
+      estimatedDelayDays: 40,
+      budgetAtRiskPln: 290_000,
+      rootCause:
+        "Oferta z najniższą ceną (9,42 mln PLN) jest o 24,3% niższa od budżetu zamawiającego, co wywołało zarzut RNC ze strony konkurenta w zakresie technologii filtracji i hydroforów SUW.",
+      sourceCitation:
+        "„Najniższą ofertę złożyło Konsorcjum [...] na kwotę 9,42 mln PLN brutto (o 24,3% poniżej budżetu zamawiającego). Drugi oferent [...] złożył wniosek o odwołanie do KIO ws. rażąco niskiej ceny zestawów hydroforowych i filtrów odżelaziających na SUW.”",
+      legalBasis: "Art. 224 ust. 1–2 oraz Art. 513 ustawy Prawo zamówień publicznych (Pzp)",
+      mitigationPlan:
+        "Wezwanie wykonawcy do złożenia ofert producentów urządzeń technologicznych SUW (pompy, sprężarki, złoża filtracyjne) z podaniem parametrów sprawności energetycznej.",
+      contractClauseSuggestion:
+        "Propozycja do SWZ Rozdz. XVIII: „W ramach wyjaśnień z art. 224 Pzp Wykonawca zobowiązany jest przedłożyć wiążące oferty handlowe dostawców technologii SUW potwierdzające spełnienie standardów materiałowych STWiORB.”",
+      confidenceLevel: "Wysoka",
+      legalBasisOrClause: "Art. 224 ust. 1–2 Pzp",
+      ownerUnit: "Komisja Przetargowa JST",
+      verificationStatus: "pending",
+    },
+    {
+      id: "risk-wk-6",
+      code: "R10",
+      mfiprCatalogName: getMfiprCatalogName("R10"),
+      title: "Brak procedury 72-godzinnego rozruchu SUW, prób szczelności i dezynfekcji przed odbiorem",
       category: "Harmonogramowe",
       severity: "Średnie",
       probability: 3,
       impact: 3,
-      estimatedDelayDays: 30,
-      budgetAtRiskPln: 1_900_000,
+      estimatedDelayDays: 25,
+      budgetAtRiskPln: 150_000,
       rootCause:
-        "Przesunięcie wydania decyzji ZRID na IV kwartał powoduje wejście etapu robót ziemnych w kontraktowy okres zimowy (15 grudnia – 15 marca), w którym wykonawca ma prawo zawiesić bieg terminów kamieni milowych.",
+        "Niedookreślenie w PFU warunków odbioru technologicznego SUW (brak aktualnych badań manganu i amoniaku w wodzie surowej) oraz wymogów bakteriologicznych Sanepidu (PPIS).",
       sourceCitation:
-        "„NOTATKA Z KOMISJI [...] Przesunięcie wydania decyzji ZRID na IV kwartał rodzi kolizję z umownym okresem zimowym (15 grudnia – 15 marca).”",
-      legalBasis: "Subklauzula 8.4 FIDIC / Szczególne Warunki Kontraktu GDDKiA",
+        "„PFU dla modernizacji Stacji Uzdatniania Wody określa wydajność nominalną pomp na 140 m3/h, ale nie zawiera aktualnych badań wody surowej [...] ani procedury 72-godzinnego rozruchu technologicznego, płukania i dezynfekcji sieci.”",
+      legalBasis: "Rozporządzenie Ministra Zdrowia ws. jakości wody przeznaczonej do spożycia przez ludzi",
       mitigationPlan:
-        "Wprowadzić w Harmonogramie Rzeczowo-Finansowym (HRF) obowiązek prowadzenia w okresie zimowym prac przygotowawczych niepodlegających reżimowi temperatur (wycinka drzew, rozbiórki, prefabrykacja belek sprężonych w wytwórni).",
-      legalBasisOrClause: "Subklauzula 8.4 FIDIC / Szczególne Warunki Kontraktu (Okresy zimowe)",
-      ownerUnit: "Zespół Zarządzania Harmonogramem i Ścieżką Krytyczną",
+        "Uzupełnienie STWiORB i PPU o obowiązkowy protokół z 72-godzinnego ruchu próbnego SUW oraz dwukrotne pozytywne wyniki badań akredytowanego laboratorium i odbioru PPIS.",
+      contractClauseSuggestion:
+        "Propozycja do PPU §11 ust. 2: „Warunkiem podpisania Protokołu Odbioru Końcowego jest przeprowadzenie 72-godzinnego rozruchu technologicznego SUW pod obciążeniem oraz uzyskanie pozytywnej oceny jakości wody właściwego Państwowego Powiatowego Inspektora Sanitarnego.”",
+      confidenceLevel: "Wymaga uzupełnienia dokumentów",
+      legalBasisOrClause: "Rozporządzenie MZ ws. jakości wody do spożycia",
+      ownerUnit: "Eksploatator Sieci (ZGK / Wodociągi Gminne) & Nadzór",
       verificationStatus: "pending",
     },
     {
-      id: "risk-7",
-      code: "TECH-01",
-      title: "Ryzyko osiadania nasypów najazdowych i konieczności wzmocnienia podłoża kolumnami DSM",
+      id: "risk-wk-7",
+      code: "R15",
+      mfiprCatalogName: getMfiprCatalogName("R15"),
+      title: "Ryzyko stagnacji wody na końcowym odcinku 2,9 km (pobór początkowy <15%) i utraty wskaźnika KPO",
       category: "Techniczne",
       severity: "Wysokie",
       probability: 3,
       impact: 4,
-      estimatedDelayDays: 25,
-      budgetAtRiskPln: 6_450_000,
+      estimatedDelayDays: 15,
+      budgetAtRiskPln: 420_000,
       rootCause:
-        "Wysokie nasypy najazdowe (do 9,2 m) przed obiektem mostowym MS-03 posadowione na gruntach organicznych wymagają min. 120-dniowej konsolidacji lub zastąpienia wymiany gruntu technologią kolumn głębokościowych DSM.",
+        "Na odcinku końcowym (2,9 km do zabudowy letniskowej) niski początkowy pobór wody wydłuża czas przetrzymania wody w rurociągu PE160, grożąc wtórnym skażeniem i nieosiągnięciem wskaźnika aktywnych przyłączy KPO B3.1.1.",
       sourceCitation:
-        "„Wykryto rozbieżności dot. gruntów słabonośnych [...] na odcinku km 4+100 – 5+850 [...] pozycje robót mostowych (obiekt MS-03 nad rzeką Gwdą).”",
-      legalBasis: "Eurokod 7 (PN-EN 1997-1) Projektowanie geotechniczne / Warunki Techniczne WT-2",
+        "„Na końcowym odcinku sieci (2,9 km, zabudowa letniskowa) prognozowany początkowy pobór wody wynosi poniżej 15% założonego wolumenu (ryzyko stagnacji wody i wtórnego zanieczyszczenia bakteriologicznego).”",
+      legalBasis: "Wytyczne kwalifikowalności KPO Inwestycja B3.1.1 / Rozdz. 2.3 Poradnika Eksperckiego MFiPR",
       mitigationPlan:
-        "Zoptymalizować technologię wzmocnienia podłoża poprzez zastosowanie kolumn CMC/DSM wraz z materacem geosyntetycznym i automatycznym monitoringiem inklinometrycznym osiadań w czasie rzeczywistym.",
-      legalBasisOrClause: "Eurokod 7 (PN-EN 1997-1) oraz Warunki Wykonania i Odbioru Robót (WWiORB)",
-      ownerUnit: "Główny Projektant Geotechniczny / Nadzór Inwestorski",
-      verificationStatus: "pending",
-    },
-    {
-      id: "risk-8",
-      code: "TECH-02",
-      title: "Niedobór lokalnych kruszyw łamanych o parametrach mrozoodporności dla podbudowy KR6",
-      category: "Techniczne",
-      severity: "Niskie",
-      probability: 2,
-      impact: 2,
-      estimatedDelayDays: 10,
-      budgetAtRiskPln: 850_000,
-      rootCause:
-        "Jednoczesna realizacja trzech odcinków dróg ekspresowych w promieniu 80 km ogranicza dostępność kruszyw bazaltowych i granitowych oraz przepustowość bocznic kolejowych.",
-      sourceCitation:
-        "„Wzrost cen [...] stali zbrojeniowej i betonu mostowego B50 [...] ograniczenia logistyczne w dostawach kruszyw dla podbudowy.”",
-      legalBasis: "Wymagania Techniczne WT-4 Mieszanki niezwiązane GDDKiA / PN-EN 13242",
-      mitigationPlan:
-        "Zobowiązać wykonawcę w Planie Zapewnienia Jakości (PZJ) do zatwierdzenia min. dwóch alternatywnych kopalń kruszyw oraz utworzenia buforowego składowiska 40 000 ton na placu budowy.",
-      legalBasisOrClause: "WT-4 Mieszanki niezwiązane do dróg krajowych GDDKiA",
-      ownerUnit: "Laboratorium Drogowe i Zespół Technologii",
+        "Zaprojektowanie układu pierścieniowego (spinającego) zamiast ślepej końcówki lub montaż automatycznych zaworów płuczących na końcu strefy letniskowej oraz weryfikacja deklaracji przyłączeniowych mieszkańców.",
+      contractClauseSuggestion:
+        "Propozycja do PFU pkt 4.6: „Na odcinkach końcowych sieci o prognozowanym przepływie początkowym Q < 0,15 Qmax Wykonawca zaprojektuje automatyczne punkty płukania sieci z opomiarowaniem przepływu.”",
+      confidenceLevel: "Wysoka",
+      legalBasisOrClause: "Regulamin KPO B3.1.1 (Wskaźnik podłączonych nieruchomości)",
+      ownerUnit: "Operator Wodociągu Gminnego / Komórka Rozliczeń KPO",
       verificationStatus: "pending",
     },
   ],
 };
 
-// Funkcja tworząca dynamiczny raport na podstawie wprowadzonego opisu użytkownika
+// Funkcja tworząca dynamiczny raport wod-kan na podstawie wprowadzonego opisu użytkownika
 export function buildLocalFallbackReport(
   inputText: string,
   uploadedFileName: string | null,
@@ -325,48 +412,45 @@ export function buildLocalFallbackReport(
   const { processedText } = applyRodoShieldMasking(inputText, rodoEnabled);
   const lower = processedText.toLowerCase();
 
-  const isDemoMatch =
-    lower.includes("dk-22") ||
-    lower.includes("feniks") ||
-    lower.includes("obwodnicy północnej");
+  // Klasyfikacja podsektora wod-kan na podstawie słów kluczowych
+  let subsector: WodKanSubsector = "Sieć wodociągowa";
+  let additionalSubsector: WodKanSubsector | undefined = "Uzdatnianie i zaopatrzenie w wodę";
 
-  if (isDemoMatch) {
-    return {
-      ...DEMO_JURY_REPORT,
-      sourceInputSample: processedText,
-      generatedAt: new Date().toISOString(),
-    };
+  if (lower.includes("oczyszczaln")) {
+    subsector = "Oczyszczalnia ścieków";
+    additionalSubsector = lower.includes("kanaliz") ? "Kanalizacja sanitarna" : undefined;
+  } else if (lower.includes("deszczow") || lower.includes("retenc")) {
+    subsector = "Kanalizacja deszczowa i retencja";
+    additionalSubsector = undefined;
+  } else if (lower.includes("kanalizacj") || lower.includes("ściek") || lower.includes("tłoczn")) {
+    subsector = "Kanalizacja sanitarna";
+    additionalSubsector = lower.includes("wodociąg") ? "Sieć wodociągowa" : undefined;
+  } else if (lower.includes("suw") || lower.includes("uzdatnian")) {
+    subsector = "Uzdatnianie i zaopatrzenie w wodę";
+    additionalSubsector = "Sieć wodociągowa";
   }
 
-  const hasKio = lower.includes("kio") || lower.includes("odwołan") || lower.includes("przetarg");
-  const hasZrid = lower.includes("zrid") || lower.includes("środowisk") || lower.includes("rdoś") || lower.includes("pozwolen");
-  const hasGeo = lower.includes("geotechn") || lower.includes("grunt") || lower.includes("kolizj") || lower.includes("wod");
-  const hasBudget = lower.includes("waloryzacj") || lower.includes("koszt") || lower.includes("budżet") || lower.includes("roszczen");
+  const workType: WodKanWorkType =
+    lower.includes("modernizacj") || lower.includes("przebudow") || lower.includes("renowacj")
+      ? "Przebudowa/renowacja"
+      : "Budowa/rozbudowa";
+
+  const similarProjects = findSimilarMfiprProjects(subsector, workType, 4);
 
   const titlePrefix = uploadedFileName
-    ? `Analiza dokumentu: ${uploadedFileName}`
-    : processedText.slice(0, 88).trim() || "Inwestycja infrastrukturalna współfinansowana z funduszy UE";
-
-  const baseScore =
-    58 +
-    (hasKio ? 10 : 0) +
-    (hasZrid ? 9 : 0) +
-    (hasGeo ? 7 : 0) +
-    (hasBudget ? 8 : 0);
-
-  const clampedScore = Math.min(94, Math.max(42, baseScore));
+    ? `Analiza dokumentacji wod-kan: ${uploadedFileName}`
+    : processedText.split("\n")[0]?.slice(0, 105).trim() ||
+      "Inwestycja gospodarki wodno-ściekowej współfinansowana z funduszy UE";
 
   return {
     ...DEMO_JURY_REPORT,
-    projectId: "MFiPR-RM-2026/CUSTOM-01",
+    projectId: "MFiPR-WODKAN-2026/01",
     projectTitle: titlePrefix,
-    overallRiskScore: clampedScore,
-    criticalPathDelayDays: hasZrid || hasKio ? 95 : 60,
-    threatenedBudgetPln: hasBudget ? 36_500_000 : 24_200_000,
+    subsector,
+    additionalSubsector,
+    workType,
+    similarProjects,
     sourceInputSample: processedText,
     generatedAt: new Date().toISOString(),
-    executiveSummary: `Analiza zgłoszonego opisu inwestycji (${
-      uploadedFileName ? `załącznik: ${uploadedFileName}` : "wsad tekstowy/głosowy"
-    }) wykazała indeks ryzyka na poziomie ${clampedScore}/100 pkt. Zidentyfikowano kluczowe punkty zapalne wymagające interwencji Komitetu Sterującego w obszarze zamówień publicznych, harmonogramu kamieni milowych oraz kwalifikowalności wydatków UE.`,
   };
 }

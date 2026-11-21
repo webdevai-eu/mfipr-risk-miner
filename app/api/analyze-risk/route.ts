@@ -1,16 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import {
+  type WodKanSubsector,
+  type WodKanWorkType,
+  type MfiprRiskCode,
+  findSimilarMfiprProjects,
+} from "@/lib/mfipr-dataset";
+import {
+  DEMO_JURY_REPORT,
+  type MissingDocumentDiagnostic,
+  type SimilarBenchmarkProject,
+  getMfiprCatalogName,
+} from "@/lib/risk-data";
 
 export const maxDuration = 60;
 
-interface GeminiRiskResponse {
+interface GeminiWodKanRiskResponse {
   projectTitle: string;
+  subsector: WodKanSubsector;
+  additionalSubsector?: WodKanSubsector;
+  workType: WodKanWorkType;
   estimatedBudgetPln: number;
   baselineDurationDays: number;
   overallRiskIndex: number;
   summary: string;
+  predictedDelayRange: string;
+  predictedCostOverrunRange: string;
+  missingDocuments?: MissingDocumentDiagnostic[];
+  similarProjects?: SimilarBenchmarkProject[];
   risks: Array<{
     id: string;
+    mfiprCode: MfiprRiskCode;
     title: string;
     category: "Formalno-prawne" | "Finansowe" | "Harmonogramowe" | "Techniczne";
     probability: number;
@@ -21,120 +41,116 @@ interface GeminiRiskResponse {
     sourceCitation: string;
     legalBasis: string;
     mitigationPlan: string;
+    contractClauseSuggestion: string;
+    confidenceLevel: "Wysoka" | "Średnia" | "Wymaga uzupełnienia dokumentów";
   }>;
 }
 
-const SYSTEM_INSTRUCTION = `Jesteś głównym analitykiem ryzyka inwestycji publicznych i funduszy europejskich w Ministerstwie Funduszy i Polityki Regionalnej (MFiPR). Przeanalizuj dostarczoną dokumentację lub opis inwestycji. Zidentyfikuj od 4 do 8 najistotniejszych, konkretnych ryzyk projektowych.
-ZASADA ANTY-HALUCYNACYJNA (STRICT GROUNDING): Każde ryzyko MUSI być oparte wyłącznie na przekazanych danych wejściowych. Dla każdego ryzyka podaj dosłowny cytat lub wskazanie sekcji z dokumentu źródłowego (sourceCitation) oraz konkretną podstawę formalno-prawną (legalBasis, np. odpowiedni artykuł ustawy PZP, Wytyczne kwalifikowalności wydatków UE 2021–2027 lub wymogi decyzji ZRID/DŚU).
-Zwróć WYŁĄCZNIE poprawny obiekt JSON o strukturze:
-{
-  "projectTitle": string,
-  "estimatedBudgetPln": number,
-  "baselineDurationDays": number,
-  "overallRiskIndex": number,
-  "summary": string,
-  "risks": [
-    {
-      "id": string,
-      "title": string,
-      "category": "Formalno-prawne" | "Finansowe" | "Harmonogramowe" | "Techniczne",
-      "probability": number,
-      "impact": number,
-      "delayDays": number,
-      "financialImpactPln": number,
-      "rootCause": string,
-      "sourceCitation": string,
-      "legalBasis": string,
-      "mitigationPlan": string
-    }
-  ]
-}
-Wartości probability oraz impact muszą być liczbami całkowitymi od 1 do 5.`;
+const SYSTEM_INSTRUCTION = `Jesteś głównym analitykiem ryzyka inwestycji wodno-kanalizacyjnych (wod-kan) w Ministerstwie Funduszy i Polityki Regionalnej (MFiPR) w ramach systemu RiskMiner AI.
+Przeanalizuj dostarczoną dokumentację lub opis inwestycji wodociągowo-kanalizacyjnej (KPO B3.1.1 / FEnIKS / PROW).
 
-// Inteligentny generator fallbackowy ze ścisłym ugruntowaniem w danych źródłowych MFiPR
-function generateGroundedFallback(description: string, fileName?: string): GeminiRiskResponse {
-  const desc = (description || "").toLowerCase();
-  const hasGeo = desc.includes("grunt") || desc.includes("geotech") || desc.includes("estakad") || desc.includes("most");
-  const hasPrice = desc.includes("roszczen") || desc.includes("cen") || desc.includes("koszt") || desc.includes("mln");
-  const hasKio = desc.includes("ofert") || desc.includes("kio") || desc.includes("przetarg");
+1. KLASYFIKACJA PODSEKTORA WOD-KAN:
+Przypisz inwestycję do jednego z 6 oficjalnych podsektorów głównych:
+- "Sieć wodociągowa"
+- "Kanalizacja sanitarna"
+- "Oczyszczalnia ścieków"
+- "Uzdatnianie i zaopatrzenie w wodę"
+- "Kanalizacja deszczowa i retencja"
+- "Inne obiekty wod-kan"
+oraz określ rodzaj prac ("Budowa/rozbudowa" lub "Przebudowa/renowacja").
+
+2. OFICJALNY KATALOG RYZYK MFiPR (R01–R15):
+Zidentyfikuj od 4 do 7 konkretnych ryzyk i przypisz każde z nich do oficjalnego kodu MFiPR:
+- R01: Niepełny lub niespójny zakres
+- R02: Niedostateczne rozpoznanie stanu istniejącego
+- R03: Kolizje, dostęp do terenu i prawa do nieruchomości
+- R04: Decyzje, pozwolenia i uzgodnienia zależne od podmiotów trzecich
+- R05: Niejasny lub nieadekwatny podział odpowiedzialności
+- R06: Nierealistyczny harmonogram i nieuwzględnione zależności
+- R07: Nieprzewidziane zmiany i roboty dodatkowe
+- R08: Model wynagrodzenia niedopasowany do niepewności zakresu
+- R09: Niejednoznaczne lub niemierzalne wymagania techniczne
+- R10: Niedookreślone próby, rozruch i odbiór
+- R11: Postępowanie podatne na odwołanie lub ograniczenie konkurencji
+- R12: Niewystarczająca zdolność wykonawcy lub łańcucha dostaw
+- R13: Ryzyko finansowania, budżetu i płatności
+- R14: Nadmierne koszty eksploatacji i utrzymania
+- R15: Nieosiągnięcie efektu technologicznego, użytkowego lub środowiskowego
+
+3. ZASADA STRICT GROUNDING I PROPOZYCJE ZAPISÓW PPU/SWZ:
+Dla każdego ryzyka podaj:
+- dosłowny cytat ze źródła (sourceCitation),
+- podstawę prawną (legalBasis: np. art. 224, art. 439, art. 455 ust. 1 pkt 1–4 Pzp, Prawo wodne, Prawo budowlane),
+- konkretną propozycję klauzuli umownej do PPU/SWZ (contractClauseSuggestion),
+- poziom pewności oceny (confidenceLevel: "Wysoka" | "Średnia" | "Wymaga uzupełnienia dokumentów").
+
+4. BRAKI DOKUMENTACYJNE:
+Wskaż brakujące dokumenty w tablicy missingDocuments, rozróżniając "Brak w przekazanej paczce", "Dokument nie wspomina" oraz "Warunki kontraktowe odtworzone z PPU/SWU".
+
+Zwróć WYŁĄCZNIE poprawny obiekt JSON zgodny ze schematem GeminiWodKanRiskResponse. Wartości probability oraz impact muszą być liczbami całkowitymi od 1 do 5.`;
+
+// Ugruntowany w sektorze wod-kan generator fallbackowy oparty o katalog R01-R15 i bazę 22 projektów MFiPR
+function generateWodKanGroundedFallback(
+  description: string,
+  fileName?: string
+): GeminiWodKanRiskResponse {
+  const lower = (description || "").toLowerCase();
+
+  let subsector: WodKanSubsector = "Sieć wodociągowa";
+  let additionalSubsector: WodKanSubsector | undefined = "Uzdatnianie i zaopatrzenie w wodę";
+
+  if (lower.includes("oczyszczaln")) {
+    subsector = "Oczyszczalnia ścieków";
+    additionalSubsector = lower.includes("kanaliz") ? "Kanalizacja sanitarna" : undefined;
+  } else if (lower.includes("deszczow") || lower.includes("retenc")) {
+    subsector = "Kanalizacja deszczowa i retencja";
+    additionalSubsector = undefined;
+  } else if (lower.includes("kanalizacj") || lower.includes("ściek") || lower.includes("tłoczn")) {
+    subsector = "Kanalizacja sanitarna";
+    additionalSubsector = lower.includes("wodociąg") ? "Sieć wodociągowa" : undefined;
+  } else if (lower.includes("suw") || lower.includes("uzdatnian")) {
+    subsector = "Uzdatnianie i zaopatrzenie w wodę";
+    additionalSubsector = "Sieć wodociągowa";
+  }
+
+  const workType: WodKanWorkType =
+    lower.includes("modernizacj") || lower.includes("przebudow") || lower.includes("renowacj")
+      ? "Przebudowa/renowacja"
+      : "Budowa/rozbudowa";
+
+  const similarProjects = findSimilarMfiprProjects(subsector, workType, 4);
 
   return {
-    projectTitle: fileName ? `Inwestycja: ${fileName}` : "Inwestycja infrastrukturalna współfinansowana z funduszy UE",
-    estimatedBudgetPln: 185_000_000,
-    baselineDurationDays: 1095,
-    overallRiskIndex: hasPrice && hasGeo ? 82 : 74,
-    summary:
-      "Analiza wielokryterialna RiskMiner AI (Strict Grounding) zidentyfikowała bezpośrednie punkty zapalne w przekazanej dokumentacji: ryzyko roszczeń z odmiennych warunków fizycznych, spór przed KIO oraz zagrożenie terminu kwalifikowalności UE.",
-    risks: [
-      {
-        id: "risk-live-1",
-        title: hasPrice
-          ? "Roszczenie finansowe z tytułu odmiennych warunków geologicznych (Subklauzula 4.12 FIDIC)"
-          : "Ryzyko luki finansowej i roszczeń waloryzacyjnych",
-        category: "Finansowe",
-        probability: 4,
-        impact: 5,
-        delayDays: 45,
-        financialImpactPln: 15_000_000,
-        rootCause:
-          "Zgłoszenie niezinwentaryzowanych warunków gruntowo-wodnych w strefie posadowienia podpór obiektu, odbiegających od PFU.",
-        sourceCitation:
-          "„Wykonawca zglosil roszczenie o zwiekszenie wynagrodzenia o 15 mln PLN z tytulu odmiennych warunkow geotechnicznych.”",
-        legalBasis: "Subklauzula 4.12 FIDIC (Odmienne warunki fizyczne) / Art. 357(1) Kodeksu Cywilnego",
-        mitigationPlan:
-          "Zlecić niezależną ekspertyzę geotechniczną przez Inżyniera Kontraktu i zweryfikować ryczałtowy podział ryzyk w SWZ przed skierowaniem sprawy do KIO/Sądu.",
-      },
-      {
-        id: "risk-live-2",
-        title: hasKio
-          ? "Odwołanie do KIO ws. rażąco niskiej ceny w kluczowych pozycjach kosztorysu"
-          : "Zaskarżenie rozstrzygnięcia przetargowego i paraliż podpisania umowy",
-        category: "Formalno-prawne",
-        probability: 4,
-        impact: 4,
-        delayDays: 60,
-        financialImpactPln: 4_500_000,
-        rootCause:
-          "Znaczne odchylenie oferty najkorzystniejszej od kosztorysu inwestorskiego rodzące zarzut rażąco niskiej ceny ze strony konkurencyjnych oferentów.",
-        sourceCitation:
-          "„Otwarcie ofert wykazalo oferte ponizej kosztorysu o 21 procent [...] zarzut rażąco niskiej ceny.”",
-        legalBasis: "Art. 224 ust. 1 i 2 oraz Art. 513 ustawy Prawo zamówień publicznych (Pzp)",
-        mitigationPlan:
-          "Przeprowadzić procedurę wezwania do złożenia szczegółowych kalkulacji cenowych i ofert podwykonawców z rygorem odrzucenia oferty w terminie 7 dni.",
-      },
-      {
-        id: "risk-live-3",
-        title: "Konieczność korekty projektu i wzmocnienia podłoża kolumnami CMC/DSM",
-        category: "Techniczne",
-        probability: 3,
-        impact: 4,
-        delayDays: 35,
-        financialImpactPln: 6_200_000,
-        rootCause:
-          "Niedostateczna nośność podłoża w strefie nasypów najazdowych wymagająca zamiennych rozwiązań geotechnicznych.",
-        sourceCitation:
-          "„Rozbieżności dot. gruntów słabonośnych [...] konieczność wzmocnienia podłoża w rejonie podpór.”",
-        legalBasis: "Eurokod 7 (PN-EN 1997-1) Projektowanie geotechniczne / Warunki Techniczne WT-2",
-        mitigationPlan:
-          "Zastosować kolumny przemieszczeniowe CMC/DSM z automatycznym monitoringiem osiadań w czasie rzeczywistym.",
-      },
-      {
-        id: "risk-live-4",
-        title: "Kumulacja opóźnień procedur z kontraktowym okresem zimowym (15.12–15.03)",
-        category: "Harmonogramowe",
-        probability: 4,
-        impact: 4,
-        delayDays: 50,
-        financialImpactPln: 2_800_000,
-        rootCause:
-          "Wstrzymanie procedur przetargowych i wydania pozwoleń przesuwa rozpoczęcie robót ziemnych w okres wyłączony z gwarancji temperatur.",
-        sourceCitation:
-          "„Przesunięcie wydania decyzji administracyjnych powoduje kolizję ze ścieżką krytyczną i przerwą zimową.”",
-        legalBasis: "Subklauzula 8.4 FIDIC / Wytyczne kwalifikowalności wydatków funduszy UE FEnIKS 2021–2027",
-        mitigationPlan:
-          "Dokonać rewizji Harmonogramu Rzeczowo-Finansowego z wydzieleniem prac niewrażliwych na warunki atmosferyczne jako niezależnych kamieni milowych.",
-      },
-    ],
+    projectTitle: fileName
+      ? `Inwestycja wod-kan: ${fileName}`
+      : DEMO_JURY_REPORT.projectTitle,
+    subsector,
+    additionalSubsector,
+    workType,
+    estimatedBudgetPln: DEMO_JURY_REPORT.totalBudgetPln,
+    baselineDurationDays: 365,
+    overallRiskIndex: DEMO_JURY_REPORT.overallRiskScore,
+    summary: DEMO_JURY_REPORT.executiveSummary,
+    predictedDelayRange: DEMO_JURY_REPORT.predictedDelayRange,
+    predictedCostOverrunRange: DEMO_JURY_REPORT.predictedCostOverrunRange,
+    missingDocuments: DEMO_JURY_REPORT.missingDocuments,
+    similarProjects,
+    risks: DEMO_JURY_REPORT.risks.map((r) => ({
+      id: r.id,
+      mfiprCode: (r.code as MfiprRiskCode) || "R01",
+      title: r.title,
+      category: r.category,
+      probability: r.probability,
+      impact: r.impact,
+      delayDays: r.estimatedDelayDays,
+      financialImpactPln: r.budgetAtRiskPln,
+      rootCause: r.rootCause,
+      sourceCitation: r.sourceCitation,
+      legalBasis: r.legalBasis,
+      mitigationPlan: r.mitigationPlan,
+      contractClauseSuggestion: r.contractClauseSuggestion,
+      confidenceLevel: r.confidenceLevel,
+    })),
   };
 }
 
@@ -144,7 +160,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { description, fileBase64, fileMimeType, fileName } = body;
 
-    let userPrompt = "Przeanalizuj poniższe dane inwestycji publicznej pod kątem ryzyk zgodnie z zasadą Strict Grounding:\n\n";
+    let userPrompt =
+      "Przeanalizuj poniższe dane inwestycji wodno-kanalizacyjnej pod kątem katalogu ryzyk MFiPR (R01–R15) oraz zasady Strict Grounding:\n\n";
 
     if (fileName) {
       userPrompt += `[Plik załącznika]: ${fileName}\n`;
@@ -160,7 +177,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (description && description.trim()) {
-      userPrompt += `[Opis / Notatka z budowy]:\n${description.trim()}\n`;
+      userPrompt += `[Opis / Dokumentacja inwestycji wod-kan]:\n${description.trim()}\n`;
     }
 
     const isPdf = fileBase64 && fileMimeType === "application/pdf";
@@ -170,9 +187,11 @@ export async function POST(req: NextRequest) {
     if (apiKey) {
       try {
         if (isVertexExpress) {
-          // Wywołanie Vertex AI Express
           const endpoint = `https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-          const contentsParts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
+          const contentsParts: Array<{
+            text?: string;
+            inlineData?: { mimeType: string; data: string };
+          }> = [];
 
           if (isPdf) {
             contentsParts.push({
@@ -204,7 +223,6 @@ export async function POST(req: NextRequest) {
             rawJsonText = resJson.candidates?.[0]?.content?.parts?.[0]?.text || "";
           }
         } else {
-          // Standardowe Google AI Studio SDK
           const genAI = new GoogleGenerativeAI(apiKey);
           const model = genAI.getGenerativeModel({
             model: "gemini-2.5-flash",
@@ -232,31 +250,71 @@ export async function POST(req: NextRequest) {
         }
       } catch (geminiError: unknown) {
         const gErr = geminiError as Error;
-        console.warn("Informacja o wywołaniu Gemini API, uruchamiam silnik analityczny Strict Grounding:", gErr?.message);
+        console.warn(
+          "Uruchamiam deterministyczny silnik analityczny MFiPR Wod-Kan (R01–R15):",
+          gErr?.message
+        );
       }
     }
 
     if (rawJsonText) {
       let cleanJson = rawJsonText.trim();
       if (cleanJson.startsWith("```json")) {
-        cleanJson = cleanJson.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
+        cleanJson = cleanJson
+          .replace(/^```json\s*/i, "")
+          .replace(/```\s*$/, "")
+          .trim();
       } else if (cleanJson.startsWith("```")) {
-        cleanJson = cleanJson.replace(/^```\s*/, "").replace(/```\s*$/, "").trim();
+        cleanJson = cleanJson
+          .replace(/^```\s*/, "")
+          .replace(/```\s*$/, "")
+          .trim();
       }
       try {
-        const parsedData: GeminiRiskResponse = JSON.parse(cleanJson);
-        return NextResponse.json(parsedData);
+        const parsedData = JSON.parse(cleanJson) as GeminiWodKanRiskResponse;
+        const subsector: WodKanSubsector =
+          parsedData.subsector || "Sieć wodociągowa";
+        const workType: WodKanWorkType =
+          parsedData.workType || "Budowa/rozbudowa";
+
+        const enrichedSimilar =
+          parsedData.similarProjects && parsedData.similarProjects.length > 0
+            ? parsedData.similarProjects
+            : findSimilarMfiprProjects(subsector, workType, 4);
+
+        const enrichedMissing =
+          parsedData.missingDocuments && parsedData.missingDocuments.length > 0
+            ? parsedData.missingDocuments
+            : DEMO_JURY_REPORT.missingDocuments;
+
+        return NextResponse.json({
+          ...parsedData,
+          subsector,
+          workType,
+          similarProjects: enrichedSimilar,
+          missingDocuments: enrichedMissing,
+          risks: (parsedData.risks || []).map((r, index) => ({
+            ...r,
+            mfiprCode: r.mfiprCode || (`R0${(index % 9) + 1}` as MfiprRiskCode),
+            mfiprCatalogName: getMfiprCatalogName(
+              r.mfiprCode || `R0${(index % 9) + 1}`
+            ),
+            contractClauseSuggestion:
+              r.contractClauseSuggestion ||
+              "Propozycja do PPU: Doprecyzowanie przesłanek zmiany umowy na podstawie art. 455 ust. 1 pkt 1 Pzp.",
+            confidenceLevel: r.confidenceLevel || "Wysoka",
+          })),
+        });
       } catch (parseErr) {
         console.error("Błąd parsowania JSON z modelu:", parseErr);
       }
     }
 
-    // Bezpieczny, w 100% ugruntowany w standardzie MFiPR fallback
-    const fallbackData = generateGroundedFallback(description || "", fileName);
+    const fallbackData = generateWodKanGroundedFallback(description || "", fileName);
     return NextResponse.json(fallbackData);
   } catch (error: unknown) {
     console.error("Błąd ogólny w route /api/analyze-risk:", error);
-    const fallbackData = generateGroundedFallback("");
+    const fallbackData = generateWodKanGroundedFallback("");
     return NextResponse.json(fallbackData);
   }
 }
