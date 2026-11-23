@@ -3247,10 +3247,15 @@ WNIOSKI Z KOPII BZP (bzp.cytr.us): ${rec.matchReasoning}`;
           </div>
 
           <div className="pt-4 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-400 gap-2">
-            <p>
-              Architektura i wdrożenie: WebDevAI (webdevai.eu) • Licencja MIT • Prototyp konkursowy HackNation 2026
-            </p>
-            <p className="font-mono text-[11px] text-slate-400">
+            <div className="space-y-1">
+              <p>
+                Architektura i wdrożenie: WebDevAI (webdevai.eu) • Licencja MIT • Prototyp konkursowy HackNation 2026
+              </p>
+              <p className="text-[11px] text-slate-400/90">
+                Niezależny prototyp (Proof of Concept) stworzony przez WebDevAI (webdevai.eu) w ramach wyzwania HackNation 2026. Aplikacja nie jest oficjalnym narzędziem Ministerstwa Funduszy i Polityki Regionalnej (MFiPR).
+              </p>
+            </div>
+            <p className="font-mono text-[11px] text-slate-400 shrink-0">
               MFiPR × RiskMiner AI v2.0-wodkan • BZP Mirror: bzp.cytr.us
             </p>
           </div>
