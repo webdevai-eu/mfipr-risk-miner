@@ -3305,6 +3305,9 @@ WNIOSKI Z KOPII BZP (bzp.cytr.us): ${rec.matchReasoning}`;
                     System <strong>RiskMiner AI</strong> stanowi narzędzie wspomagania decyzji (Decision Support System) dla ekspertów Ministerstwa Funduszy i Polityki Regionalnej, Instytucji Pośredniczących oraz Beneficjentów projektów wodno-kanalizacyjnych (KPO B3.1.1 / FEnIKS).
                   </p>
                   <p>
+                    Niezależny prototyp (Proof of Concept) stworzony przez WebDevAI (webdevai.eu) w ramach wyzwania HackNation 2026. Aplikacja nie jest oficjalnym narzędziem Ministerstwa Funduszy i Polityki Regionalnej (MFiPR).
+                  </p>
+                  <p>
                     Oprogramowanie udostępnione na otwartej licencji MIT przez zespół WebDevAI (webdevai.eu).
                   </p>
                 </>
